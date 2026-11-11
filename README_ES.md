@@ -1,14 +1,14 @@
 # NovaScale — Escalador de Video con IA en Tiempo Real (WebGL2)
 
-[![Version](https://img.shields.io/badge/Version-3.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ShionBanned/NovaScale)
+[![Version](https://img.shields.io/badge/Version-3.1.0-6366f1.svg?style=for-the-badge)](https://github.com/ShionBanned/NovaScale)
 [![Manifest](https://img.shields.io/badge/Manifest-V3-06b6d4.svg?style=for-the-badge)](manifest.json)
-[![WebGL2](https://img.shields.io/badge/WebGL2-Zero--Copy%20GPU-8b5cf6.svg?style=for-the-badge)](#arquitectura-y-pipeline)
+[![WebGL2](https://img.shields.io/badge/WebGL2-GLSL%20ES%203.00-8b5cf6.svg?style=for-the-badge)](#arquitectura-y-pipeline-técnico)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=for-the-badge)](LICENSE)
 
 **[English](README.md)** · **[Español](README_ES.md)**
 
 > **Súper-resolución en tiempo real acelerada por GPU directamente en tu navegador.**  
-> Impulsado por **AMD FidelityFX FSR 1.0 (EASU + RCAS)**, **Google RAISR**, **FSRCNN** y una completa **Suite Anime4K-Ultra de 4 niveles** operando a 60–120 FPS en WebGL2 / WebGL1.
+> Impulsado por **WebGL2 Nativo (`#version 300 es`)**, **AMD FidelityFX FSR 1.0 (EASU + RCAS)**, **Google RAISR**, **FSRCNN**, **Restauración Multicapa (3-Pass)**, **Motor HDR Dinámico (ACES + P3)** y la **Suite Anime4K-Ultra de 4 niveles** a 60–120 FPS.
 
 <p align="center">
   <img src="assets/popup_es.png" alt="Interfaz de NovaScale (Español)" width="760">
@@ -45,11 +45,12 @@ Cada perfil de **Anime Studio** parte de una reconstrucción direccional **AMD F
 
 ## Arquitectura y Pipeline Técnico
 
-- **Transferencia Zero-Copy en GPU (`D3D11VA`):** Emplea `UNPACK_FLIP_Y_WEBGL = false` y deduplicación inteligente de `gl.texImage2D` (vía `currentTime`) para mover sliders a 120 FPS incluso en pausa sin saturar el bus PCIe.
-- **Bypass Nativo Exacto en `0%`:** Cuando **Intensidad de Nitidez** está en `0%` (y Split-Screen apagado), [`content.js`](scripts/content.js) oculta el overlay `<canvas>` y muestra el `<video>` nativo intacto (`RMS = 0.000` bajo cualquier escala DPI de Windows, cero suavizado de compositor y `0%` uso extra de GPU). Además, todos los shaders cuentan con bypass interno y rampa progresiva `0%–8%`.
-- **Mantenimiento Sub-Bit (`opacity: 0.0001`):** Evita que el motor Blink suspenda `requestVideoFrameCallback` en YouTube y desactiva conflictos con el Hardware Overlay (MPO) en Windows 11.
-- **Descubrimiento Universal y Rescate CORS:** [`injector.js`](scripts/injector.js) perfora `ShadowRoot` abiertos o cerrados desde `document_start`, aplica `crossOrigin="anonymous"` a streams HTTP(S) directos sin interferir con blobs MSE (`YouTube/Twitch/Netflix`) y coopera con [`rules.json`](rules.json) (`declarativeNetRequest`) para CDNs externos.
-- **Comparación Láser Split-Screen:** División interactiva original (izquierda) vs procesado (derecha) en tiempo real.
+- **Pipeline WebGL2 Nativo (`#version 300 es`) de 2 y 3 Pasadas:** Usa `texelFetch` entero exacto y `textureSize` en la base espacial de Pass 1 (`EASU` / `RAISR`), empaqueta confianza estructural en el canal Alpha (`.a`), emplea `tanh()` nativo en FSRCNN y combina derivadas por hardware `fwidth()` en los 7 shaders de Pass 2.
+- **Restauración Multicapa (3-Pass):** Pre-restauración opcional en resolución nativa (`pass0_Restore_Anime` bilateral + pre-adelgazamiento de línea; `pass0_Restore_Cinema` limpieza de macrobloques + recuperación de micro-textura) acoplada al refuerzo `mlBoost` en Pass 2.
+- **Motor HDR Dinámico (`ACES + P3`):** Curvas tonales especializadas (Cel S-Curve + Hue Gate en Anime; Contraste ACES Filmic + Shadow Toe en Cinema), mapeo tonal local con protección de piel y *dithering* de 10 bits mediante *Interleaved Gradient Noise* sobre `gl_FragCoord.xy`.
+- **Motor Híbrido DRM-Safe (`Engine B`):** Conmuta automáticamente streams cifrados con EME/Widevine (Netflix, Disney+, Max, Prime Video, Apple TV+) a filtros SVG `<feConvolveMatrix>` y `<feComponentTransfer>`, manteniendo WebGL2 en YouTube, Twitch y reproductores abiertos.
+- **Bloqueo Físico 1:1 y Bypass Exacto en `0%`:** Mantiene resolución física real del lienzo para evitar el reescalado bilineal de Chrome y devuelve el `<video>` nativo intacto (`RMS = 0.000`) cuando Nitidez está en `0%`.
+- **Cortina Split-Screen Interactiva y Rescate CORS:** [`content.js`](scripts/content.js) integra una cortina divisora controlada por el cursor, mientras [`injector.js`](scripts/injector.js) y [`rules.json`](rules.json) descubren `ShadowRoot` y gestionan cabeceras CORS multimedia.
 
 ---
 

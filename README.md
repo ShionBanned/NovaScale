@@ -1,14 +1,14 @@
 # NovaScale — Real-Time WebGL2 AI Video Upscaler
 
-[![Version](https://img.shields.io/badge/Version-3.0.0-6366f1.svg?style=for-the-badge)](https://github.com/ShionBanned/NovaScale)
+[![Version](https://img.shields.io/badge/Version-3.1.0-6366f1.svg?style=for-the-badge)](https://github.com/ShionBanned/NovaScale)
 [![Manifest](https://img.shields.io/badge/Manifest-V3-06b6d4.svg?style=for-the-badge)](manifest.json)
-[![WebGL2](https://img.shields.io/badge/WebGL2-Zero--Copy%20GPU-8b5cf6.svg?style=for-the-badge)](#architecture--pipeline)
+[![WebGL2](https://img.shields.io/badge/WebGL2-GLSL%20ES%203.00-8b5cf6.svg?style=for-the-badge)](#architecture--pipeline)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=for-the-badge)](LICENSE)
 
 **[English](README.md)** · **[Español](README_ES.md)**
 
 > **Hardware-accelerated real-time super-resolution inside your browser.**  
-> Powered by **AMD FidelityFX FSR 1.0 (EASU + RCAS)**, **Google RAISR**, **FSRCNN**, and a full **4-Tier Anime4K-Ultra Suite** executing natively at 60–120 FPS in WebGL2 / WebGL1.
+> Powered by **Native WebGL2 (`#version 300 es`)**, **AMD FidelityFX FSR 1.0 (EASU + RCAS)**, **Google RAISR**, **FSRCNN**, **3-Pass Multi-Layer Restore**, **Dynamic ACES + P3 HDR**, and a full **4-Tier Anime4K-Ultra Suite** at 60–120 FPS.
 
 <p align="center">
   <img src="assets/popup_en.png" alt="NovaScale UI Overview (English)" width="760">
@@ -45,11 +45,13 @@ Every Anime Studio profile starts with an **AMD FSR 1.0 (12-Tap EASU)** directio
 
 ## Architecture & Pipeline
 
-- **Zero-Copy GPU Transfer (`D3D11VA`):** Uses `UNPACK_FLIP_Y_WEBGL = false` and `gl.texImage2D` deduplication (`currentTime` gating) so sharpness sliders scrub smoothly at 120 FPS even while paused without saturating PCIe bandwidth.
-- **Bit-Exact 0% Native Bypass:** When **Sharpness Intensity** is set to `0%` (and Split-Screen is off), [`content.js`](scripts/content.js) automatically restores the untouched native HTML5 `<video>` layer (`0.000` RMS delta, zero WebGL overhead under any Display Scale / DPR). Every shader also enforces an internal `<= 0.001` bypass with a smooth `0%–8%` ramp.
-- **Sub-Bit Paint Keepalive:** Maintains `opacity: 0.0001` on hidden underlying videos when WebGL is active so Blink never suspends `requestVideoFrameCallback` and Windows 11 Hardware Overlay (MPO) stays cleanly bypassed.
-- **Universal Player Discovery & Hot CORS Recovery:** [`injector.js`](scripts/injector.js) pierces open/closed `ShadowRoot` trees at `document_start`, sets `crossOrigin="anonymous"` before media fetches start on direct HTTP(S) streams (leaving YouTube/Twitch/Netflix MSE `blob:` streams untouched), and coordinates with [`rules.json`](rules.json) (`declarativeNetRequest`) to handle cross-origin CDNs.
-- **Interactive Laser Split-Screen:** Toggle live left-vs-right comparison directly on top of any playing or paused video.
+- **Native WebGL2 (`#version 300 es`) 2-Pass & 3-Pass FBO Pipeline:** Employs exact integer `texelFetch` + `textureSize` in Pass-1 spatial bases (`EASU` / `RAISR`), packs structural confidence into Alpha (`.a`), activates native `tanh()` in FSRCNN, and fuses hardware `fwidth()` derivatives across Pass-2 shaders.
+- **3-Pass Multi-Layer Restore:** Optional Layer-0 native-grid pre-restoration (`pass0_Restore_Anime` bilateral denoiser & stroke pre-thinning; `pass0_Restore_Cinema` macroblock de-blocking & micro-texture recovery) paired with `mlBoost` Pass-2 amplification.
+- **Dynamic HDR Engine (`ACES + P3`):** Domain-aware tone curves (Cel S-Curve + Hue Gate for Anime; ACES Filmic Contrast + Shadow Toe for Cinema), skin-protected Local Tone Mapping, muted chroma vibrance, and 10-bit Interleaved Gradient Noise dithering (`gl_FragCoord.xy`).
+- **Hybrid DRM-Safe Engine (`Engine B`):** Automatically switches EME / Widevine streams (Netflix, Disney+, Max, Prime Video, Apple TV+) to SVG `<feConvolveMatrix>` & `<feComponentTransfer>` hardware filters while keeping WebGL2 zero-copy on standard MSE/HTTP players.
+- **Zero-Copy GPU Transfer & 1:1 Physical Canvas Lock:** Uses `UNPACK_FLIP_Y_WEBGL = false`, `currentTime` deduplication, and physical DPR canvas sizing without Chrome bilinear downscaling blur.
+- **Bit-Exact 0% Native Bypass & Sub-Bit Keepalive:** Restores untouched HTML5 `<video>` at `0%` sharpness and keeps `opacity: 0.0001` under WebGL so `requestVideoFrameCallback` stays active across all displays.
+- **Universal Player Discovery & Interactive Split-Screen:** [`injector.js`](scripts/injector.js) pierces open/closed `ShadowRoot` trees at `document_start`, coordinates with [`rules.json`](rules.json), and [`content.js`](scripts/content.js) drives a mouse-tracked laser curtain for instant original-vs-upscaled comparison.
 
 ---
 
