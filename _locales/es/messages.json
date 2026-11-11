@@ -127,6 +127,30 @@
     "message": "Ultra",
     "description": "Etiqueta máxima del deslizador."
   },
+  "hdrTitle": {
+    "message": "Motor HDR Dinámico",
+    "description": "Título de la tarjeta de Motor HDR Dinámico."
+  },
+  "multiLayerTitle": {
+    "message": "Restauración Multicapa",
+    "description": "Título del interruptor de restauración en 3 pasadas."
+  },
+  "multiLayerSubtitleAnime": {
+    "message": "Pre-Denoise y Trazos → EASU → Anime4K",
+    "description": "Subtítulo Multicapa contextual cuando Anime Studio está activo."
+  },
+  "multiLayerSubtitleCinema": {
+    "message": "IA De-Block y Micro-Detalle → EASU → Pasada Final",
+    "description": "Subtítulo Multicapa contextual cuando Cinema Pro está activo."
+  },
+  "hdrSubtitleAnime": {
+    "message": "Contraste Cel-Shading, Luz Especular & Hue Gate",
+    "description": "Subtítulo HDR contextual cuando Anime Studio está activo."
+  },
+  "hdrSubtitleCinema": {
+    "message": "Mapeo ACES Filmic, Vibrance & Dithering 10-bit",
+    "description": "Subtítulo HDR contextual cuando Cinema Pro está activo."
+  },
   "splitTitle": {
     "message": "Comparación Split-Screen",
     "description": "Título del modo pantalla dividida."

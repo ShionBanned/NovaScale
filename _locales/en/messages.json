@@ -127,6 +127,30 @@
     "message": "Ultra",
     "description": "Right label on intensity scale."
   },
+  "hdrTitle": {
+    "message": "Dynamic HDR Engine",
+    "description": "Toggle title for Dynamic HDR tone mapping."
+  },
+  "multiLayerTitle": {
+    "message": "Multi-Layer Restore",
+    "description": "Toggle title for 3-pass Multi-Layer Restore pipeline."
+  },
+  "multiLayerSubtitleAnime": {
+    "message": "Pre-Denoise & Line Restore → EASU → Anime4K",
+    "description": "Multi-Layer Restore subtitle when Anime Studio engine is active."
+  },
+  "multiLayerSubtitleCinema": {
+    "message": "De-Block & Micro-Detail AI → EASU → Target Pass",
+    "description": "Multi-Layer Restore subtitle when Cinema Pro engine is active."
+  },
+  "hdrSubtitleAnime": {
+    "message": "Cel-Shading Contrast, Specular Light & Hue Gate",
+    "description": "Dynamic HDR subtitle when Anime Studio engine is active."
+  },
+  "hdrSubtitleCinema": {
+    "message": "ACES Filmic Mapping, Vibrance & 10-bit Dithering",
+    "description": "Dynamic HDR subtitle when Cinema Pro engine is active."
+  },
   "splitTitle": {
     "message": "Split-Screen Comparison",
     "description": "Toggle title for split-screen preview."

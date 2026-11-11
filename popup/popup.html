@@ -165,6 +165,45 @@
         </div>
       </section>
 
+      <!-- Multi-Layer 3-Pass Restore Card (Transversal Anime & Cinema) -->
+      <label class="card multilayer-card" for="toggleMultiLayer">
+        <div class="split-info">
+          <div class="split-title-wrap">
+            <svg class="multilayer-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+              <polyline points="2 12 12 17 22 12"/>
+              <polyline points="2 17 12 22 22 17"/>
+            </svg>
+            <span class="split-title" data-i18n="multiLayerTitle">Multi-Layer Restore</span>
+            <span class="multilayer-badge">3-Pass</span>
+          </div>
+          <span id="multiLayerSubtitle" class="split-subtitle" data-i18n="multiLayerSubtitleAnime">Pre-Denoise &amp; Line Restore &rarr; EASU &rarr; Anime4K</span>
+        </div>
+        <div class="toggle-switch">
+          <input type="checkbox" id="toggleMultiLayer">
+          <span class="toggle-track"></span>
+        </div>
+      </label>
+
+      <!-- Dynamic HDR Tone Mapping Card (Transversal Anime & Cinema) -->
+      <label class="card hdr-card" for="toggleHdr">
+        <div class="split-info">
+          <div class="split-title-wrap">
+            <svg class="hdr-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+            <span class="split-title" data-i18n="hdrTitle">Dynamic HDR Engine</span>
+            <span class="hdr-badge">ACES + P3</span>
+          </div>
+          <span id="hdrSubtitle" class="split-subtitle" data-i18n="hdrSubtitleAnime">Cel-Shading Contrast, Specular Light &amp; Hue Gate</span>
+        </div>
+        <div class="toggle-switch">
+          <input type="checkbox" id="toggleHdr">
+          <span class="toggle-track"></span>
+        </div>
+      </label>
+
       <!-- Split-Screen Laser Card -->
       <label class="card split-card" for="toggleSplit">
         <div class="split-info">

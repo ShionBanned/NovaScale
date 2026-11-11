@@ -39,6 +39,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const toggleEnable = document.getElementById('toggleEnable');
   const toggleSplit = document.getElementById('toggleSplit');
+  const toggleHdr = document.getElementById('toggleHdr');
+  const hdrSubtitle = document.getElementById('hdrSubtitle');
+  const toggleMultiLayer = document.getElementById('toggleMultiLayer');
+  const multiLayerSubtitle = document.getElementById('multiLayerSubtitle');
   const statusPill = document.getElementById('statusPill');
   const statusText = document.getElementById('statusText');
   const optionsContainer = document.getElementById('optionsContainer');
@@ -72,6 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
     cinemaProfile: 'cinema-fsr', // 'cinema-fsr' | 'cinema-raisr' | 'cinema-fsrcnn'
     mode: 'anime-dbl',
     sharpness: 0.75,
+    hdr: false,
+    multiLayer: false,
     splitScreen: false
   };
 
@@ -79,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let hasPendingSave = false;
 
   // 1. Load persisted user preferences with legacy auto-migration
-  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
+  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
     if (chrome.runtime.lastError) {
       console.warn('NovaScale: failed to read local storage:', chrome.runtime.lastError);
       return;
@@ -91,6 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof res.sharpness === 'number' && !isNaN(res.sharpness)) {
       state.sharpness = Math.max(0.0, Math.min(1.0, res.sharpness));
     }
+    if (res.hdr !== undefined) state.hdr = Boolean(res.hdr);
+    if (res.multiLayer !== undefined) state.multiLayer = Boolean(res.multiLayer);
     if (res.splitScreen !== undefined) state.splitScreen = Boolean(res.splitScreen);
 
     // Resolve active mode and engine
@@ -150,6 +158,14 @@ document.addEventListener('DOMContentLoaded', () => {
       state.sharpness = Math.max(0.0, Math.min(1.0, changes.sharpness.newValue));
       changed = true;
     }
+    if (changes.hdr && changes.hdr.newValue !== state.hdr) {
+      state.hdr = Boolean(changes.hdr.newValue);
+      changed = true;
+    }
+    if (changes.multiLayer && changes.multiLayer.newValue !== state.multiLayer) {
+      state.multiLayer = Boolean(changes.multiLayer.newValue);
+      changed = true;
+    }
     if (changes.splitScreen && changes.splitScreen.newValue !== state.splitScreen) {
       state.splitScreen = Boolean(changes.splitScreen.newValue);
       changed = true;
@@ -163,6 +179,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. Render and update reactive UI components
   function updateUI() {
     toggleEnable.checked = state.enabled;
+    if (toggleMultiLayer) {
+      toggleMultiLayer.checked = state.multiLayer;
+    }
+    if (multiLayerSubtitle) {
+      multiLayerSubtitle.textContent = state.engine === 'anime'
+        ? t('multiLayerSubtitleAnime', 'Pre-Denoise & Line Restore \u2192 EASU \u2192 Anime4K')
+        : t('multiLayerSubtitleCinema', 'De-Block & Micro-Detail AI \u2192 EASU \u2192 Target Pass');
+    }
+    if (toggleHdr) {
+      toggleHdr.checked = state.hdr;
+    }
+    if (hdrSubtitle) {
+      hdrSubtitle.textContent = state.engine === 'anime'
+        ? t('hdrSubtitleAnime', 'Cel-Shading Contrast, Specular Light & Hue Gate')
+        : t('hdrSubtitleCinema', 'ACES Filmic Mapping, Vibrance & 10-bit Dithering');
+    }
     if (toggleSplit) {
       toggleSplit.checked = state.splitScreen;
     }
@@ -282,6 +314,22 @@ document.addEventListener('DOMContentLoaded', () => {
     updateUI();
     saveImmediate({ enabled: state.enabled });
   });
+
+  if (toggleMultiLayer) {
+    toggleMultiLayer.addEventListener('change', (e) => {
+      state.multiLayer = e.target.checked;
+      updateUI();
+      saveImmediate({ multiLayer: state.multiLayer });
+    });
+  }
+
+  if (toggleHdr) {
+    toggleHdr.addEventListener('change', (e) => {
+      state.hdr = e.target.checked;
+      updateUI();
+      saveImmediate({ hdr: state.hdr });
+    });
+  }
 
   if (toggleSplit) {
     toggleSplit.addEventListener('change', (e) => {

@@ -681,3 +681,73 @@ html, body {
   color: var(--text-secondary);
   margin-top: 1px;
 }
+
+/* ── Dynamic HDR Card ───────────────────────────────────────────────────── */
+.hdr-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.hdr-card:hover {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(22, 32, 51, 0.85);
+}
+
+.hdr-svg {
+  width: 14px;
+  height: 14px;
+  color: #f59e0b;
+}
+
+.hdr-badge {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Compact spacing to host all 4 toggle cards cleanly below 600px without scrolling */
+.popup-wrapper { padding: 9px 14px; gap: 6.5px; }
+.options-container { gap: 6px; }
+.engine-card { min-height: 68px; padding: 7px 10px; }
+.card, .hdr-card, .split-card { padding: 6px 11px; }
+
+/* ── Multi-Layer 3-Pass Restore Card ────────────────────────────────────── */
+.multilayer-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 6.5px 11px;
+}
+
+.multilayer-card:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(22, 32, 51, 0.85);
+}
+
+.multilayer-svg {
+  width: 14px;
+  height: 14px;
+  color: #c084fc;
+}
+
+.multilayer-badge {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.18);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
