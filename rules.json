@@ -49,7 +49,16 @@
         "youtube.com",
         "ytimg.com",
         "nflxvideo.net",
-        "ttvnw.net"
+        "netflix.com",
+        "ttvnw.net",
+        "disneyplus.com",
+        "bamgrid.com",
+        "dssott.com",
+        "max.com",
+        "hbomax.com",
+        "primevideo.com",
+        "aiv-cdn.net",
+        "tv.apple.com"
       ],
       "resourceTypes": [
         "media"

@@ -19,7 +19,7 @@
   if (window.__novascale_main_v4) return;
   window.__novascale_main_v4 = true;
 
-  const IS_MSE_HOST = /(^|\.)(youtube\.com|youtube-nocookie\.com|twitch\.tv|netflix\.com)$/i.test(
+  const IS_MSE_HOST = /(^|\.)(youtube\.com|youtube-nocookie\.com|twitch\.tv|netflix\.com|nflxvideo\.net|disneyplus\.com|bamgrid\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|tv\.apple\.com)$/i.test(
     location.hostname
   );
 

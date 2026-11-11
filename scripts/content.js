@@ -20,6 +20,8 @@
     enabled:     true,
     mode:        'anime-dbl',
     sharpness:   0.75,
+    hdr:         false,
+    multiLayer:  false,
     splitScreen: false
   };
 
@@ -30,7 +32,84 @@
   }
 
   function isProcessingActive() {
-    return Boolean(config.enabled) && (Number(config.sharpness) > 0.001 || Boolean(config.splitScreen));
+    return Boolean(config.enabled) && (
+      Number(config.sharpness) > 0.001 ||
+      Boolean(config.hdr) ||
+      Boolean(config.splitScreen)
+    );
+  }
+
+  // ── Engine B: Delegated DRM-Safe Compositor Pipeline (Zero-Read SVG GPU) ──
+  function syncDrmCompositorPipeline() {
+    const NS = 'http://www.w3.org/2000/svg';
+    let svg = document.getElementById('novascale-drm-compositor');
+    if (!svg && document.documentElement) {
+      svg = document.createElementNS(NS, 'svg');
+      svg.id = 'novascale-drm-compositor';
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      Object.assign(svg.style, {
+        position: 'fixed',
+        top: '-9999px',
+        left: '-9999px',
+        pointerEvents: 'none',
+        width: '0px',
+        height: '0px'
+      });
+      svg.innerHTML = `
+        <defs>
+          <filter id="novascale-drm-filter" color-interpolation-filters="sRGB" x="0%" y="0%" width="100%" height="100%">
+            <feConvolveMatrix id="ns-drm-conv" order="3 3" preserveAlpha="true" kernelMatrix="0 0 0 0 1 0 0 0 0" result="sharpened"/>
+            <feComponentTransfer id="ns-drm-transfer" in="sharpened" result="tonemapped">
+              <feFuncR id="ns-drm-r" type="table" tableValues="0 1"/>
+              <feFuncG id="ns-drm-g" type="table" tableValues="0 1"/>
+              <feFuncB id="ns-drm-b" type="table" tableValues="0 1"/>
+            </feComponentTransfer>
+            <feColorMatrix id="ns-drm-sat" in="tonemapped" type="saturate" values="1"/>
+          </filter>
+        </defs>
+      `;
+      document.documentElement.appendChild(svg);
+    }
+    if (!svg) return;
+
+    const modeStr = String(config.mode || 'anime-dbl');
+    const isAnime = !modeStr.startsWith('cinema');
+    const sharp = Math.max(0, Math.min(1, Number(config.sharpness) || 0));
+    const strength = sharp * (isAnime ? 0.55 : 0.42);
+    const center = (1 + 4 * strength).toFixed(4);
+    const neighbor = (-strength).toFixed(4);
+
+    const conv = document.getElementById('ns-drm-conv');
+    if (conv) {
+      conv.setAttribute(
+        'kernelMatrix',
+        sharp > 0.001
+          ? `0 ${neighbor} 0 ${neighbor} ${center} ${neighbor} 0 ${neighbor} 0`
+          : '0 0 0 0 1 0 0 0 0'
+      );
+    }
+
+    const rEl = document.getElementById('ns-drm-r');
+    const gEl = document.getElementById('ns-drm-g');
+    const bEl = document.getElementById('ns-drm-b');
+    const satEl = document.getElementById('ns-drm-sat');
+
+    if (config.hdr) {
+      // Balanced 9-point ACES filmic table & subtle saturation in Engine B compositor
+      const curve = isAnime
+        ? '0.0 0.095 0.22 0.37 0.525 0.67 0.80 0.91 1.0'
+        : '0.0 0.09 0.215 0.365 0.515 0.66 0.79 0.90 1.0';
+      if (rEl) rEl.setAttribute('tableValues', curve);
+      if (gEl) gEl.setAttribute('tableValues', curve);
+      if (bEl) bEl.setAttribute('tableValues', curve);
+      if (satEl) satEl.setAttribute('values', isAnime ? '1.08' : '1.06');
+    } else {
+      if (rEl) rEl.setAttribute('tableValues', '0 1');
+      if (gEl) gEl.setAttribute('tableValues', '0 1');
+      if (bEl) bEl.setAttribute('tableValues', '0 1');
+      if (satEl) satEl.setAttribute('values', '1');
+    }
   }
 
   const activeInstances = new Map();
@@ -39,12 +118,14 @@
   // ── State synchronization with chrome.storage.local ──────────────────────
   if (chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(
-      ['enabled', 'mode', 'sharpness', 'splitScreen'],
+      ['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'splitScreen'],
       (res) => {
         if (chrome.runtime.lastError || !res) return;
         if (res.enabled     !== undefined) config.enabled     = Boolean(res.enabled);
         if (res.mode)                      config.mode        = normalizeMode(res.mode);
         if (res.sharpness   !== undefined) config.sharpness   = Number(res.sharpness);
+        if (res.hdr         !== undefined) config.hdr         = Boolean(res.hdr);
+        if (res.multiLayer  !== undefined) config.multiLayer  = Boolean(res.multiLayer);
         if (res.splitScreen !== undefined) config.splitScreen = Boolean(res.splitScreen);
         scheduleUpdateAll();
       }
@@ -55,6 +136,8 @@
       if ('enabled'     in changes) config.enabled     = Boolean(changes.enabled.newValue);
       if ('mode'        in changes) config.mode        = normalizeMode(changes.mode.newValue);
       if ('sharpness'   in changes) config.sharpness   = Number(changes.sharpness.newValue);
+      if ('hdr'         in changes) config.hdr         = Boolean(changes.hdr.newValue);
+      if ('multiLayer'  in changes) config.multiLayer  = Boolean(changes.multiLayer.newValue);
       if ('splitScreen' in changes) config.splitScreen = Boolean(changes.splitScreen.newValue);
       scheduleUpdateAll();
     });
@@ -106,10 +189,38 @@
       this.running           = false;
       this.corsRecoveryTried = false;
       this.permanentlyFailed = false;
+      this.compositorMode    = Boolean(video.mediaKeys);
+      this.splitPos          = 0.5;
+      this._splitRafId       = null;
       this.resizeTimer       = null;
       this.rObs              = null;
       this._initRetry        = null;
 
+      this._onMouseMove = (e) => {
+        if (this.compositorMode || this.permanentlyFailed) return;
+        if (!isProcessingActive() || !config.splitScreen || !this.renderer || !this.video) return;
+        const rect = (this.canvas && this.canvas.style.display !== 'none')
+          ? this.canvas.getBoundingClientRect()
+          : getVideoRect(this.video);
+        if (rect.width < 20 || rect.height < 20) return;
+        if (
+          e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top  && e.clientY <= rect.bottom
+        ) {
+          this.splitPos = Math.max(0.02, Math.min(0.98, (e.clientX - rect.left) / rect.width));
+          this.renderer.setSplit(this.splitPos);
+          if (this.video.paused && !this._splitRafId) {
+            this._splitRafId = requestAnimationFrame(() => {
+              this._splitRafId = null;
+              if (this.video && this.video.paused) {
+                this._renderStaticFrame(false);
+              }
+            });
+          }
+        }
+      };
+
+      this._onEncrypted  = () => this._activateCompositorFallback();
       this._onPlay       = () => this._onVideoPlay();
       this._onPlaying    = () => this._onVideoPlay();
       this._onPause      = () => { this.stopLoop(); this._renderStaticFrame(false); };
@@ -122,6 +233,7 @@
         setTimeout(() => this._scheduleSync(), 180);
       };
 
+      video.addEventListener('encrypted',      this._onEncrypted);
       video.addEventListener('play',           this._onPlay);
       video.addEventListener('playing',        this._onPlaying);
       video.addEventListener('pause',          this._onPause);
@@ -132,6 +244,7 @@
       video.addEventListener('canplay',        this._onLoaded);
       video.addEventListener('resize',         this._onResize);
       window.addEventListener('resize',        this._onResize);
+      window.addEventListener('mousemove',     this._onMouseMove, { passive: true });
       document.addEventListener('fullscreenchange', this._onFullscreen);
 
       if (window.ResizeObserver) {
@@ -146,6 +259,10 @@
     }
 
     _tryInit() {
+      if (this.compositorMode) {
+        this.applyConfig();
+        return;
+      }
       if (this.permanentlyFailed) return;
       if (this.renderer && this.canvas && this.canvas.isConnected) return;
 
@@ -283,14 +400,19 @@
       this.canvas.style.width  = `${Math.round(renderW)}px`;
       this.canvas.style.height = `${Math.round(renderH)}px`;
 
-      // Adaptive super-resolution internal framebuffer sizing:
-      // Never downscale below native video resolution (vW, vH) to prevent detail loss,
-      // and upscale smoothly up to display physical pixels (renderW * dpr) for fullscreen/4K.
+      // Match the physical canvas pixels cleanly to player size (or native video resolution
+      // if larger) preserving exact aspect ratio so Chrome never applies bilinear downscaling
+      // over Pass-2 1px sharpening.
       const dpr   = Math.min(window.devicePixelRatio || 1, 2.0);
       const dispW = Math.round(renderW * dpr);
       const dispH = Math.round(renderH * dpr);
-      const targW = Math.max(1, Math.min(3840, Math.max(vW, dispW)));
-      const targH = Math.max(1, Math.min(2160, Math.max(vH, dispH)));
+      const aspect = renderW / Math.max(1, renderH);
+      let targW = Math.max(dispW, vW);
+      let targH = Math.round(targW / Math.max(0.01, aspect));
+      if (targW > 3840) { targW = 3840; targH = Math.round(3840 / aspect); }
+      if (targH > 2160) { targH = 2160; targW = Math.round(2160 * aspect); }
+      targW = Math.max(1, targW);
+      targH = Math.max(1, targH);
 
       if (
         Math.abs(this.canvas.width - targW) > 2 ||
@@ -331,10 +453,35 @@
       }
     }
 
+    _activateCompositorFallback() {
+      this.compositorMode = true;
+      this.stopLoop();
+      this._showNativeVideo();
+      this.applyConfig();
+    }
+
     applyConfig() {
-      if (this.permanentlyFailed) {
+      if (this.video && this.video.mediaKeys && !this.compositorMode) {
+        this.compositorMode = true;
+      }
+
+      // Engine B Path: DRM-Safe Compositor (Netflix, Disney+, Max, Prime Video, Apple TV+, etc.)
+      if (this.compositorMode || this.permanentlyFailed) {
+        this.stopLoop();
         this._showNativeVideo();
+        if (this.video) {
+          if (isProcessingActive()) {
+            syncDrmCompositorPipeline();
+            this.video.style.setProperty('filter', 'url(#novascale-drm-filter)', 'important');
+          } else {
+            this.video.style.removeProperty('filter');
+          }
+        }
         return;
+      }
+
+      if (this.video) {
+        this.video.style.removeProperty('filter');
       }
 
       if (!this.renderer) {
@@ -345,12 +492,14 @@
         }
       }
 
-      const { mode, sharpness, splitScreen } = config;
+      const { mode, sharpness, hdr, multiLayer, splitScreen } = config;
 
       if (isProcessingActive()) {
         this.renderer.setMode(mode);
         this.renderer.setSharpness(sharpness);
-        this.renderer.setSplit(splitScreen ? 0.5 : -1.0);
+        this.renderer.setHdr(hdr);
+        this.renderer.setMultiLayer(multiLayer);
+        this.renderer.setSplit(splitScreen ? (this.splitPos || 0.5) : -1.0);
 
         this.syncSize();
 
@@ -376,6 +525,7 @@
     /**
      * If a media host began loading before crossOrigin="anonymous" was attached,
      * perform a one-shot hot recovery reload with CORS enabled.
+     * If it is a DRM or unrecoverable stream, automatically switch to Engine B (Compositor).
      */
     _attemptCorsRecovery() {
       this.stopLoop();
@@ -384,13 +534,14 @@
       const src = this.video.currentSrc || this.video.getAttribute('src') || '';
       if (
         this.corsRecoveryTried ||
+        this.video.mediaKeys ||
         !src ||
         src.startsWith('blob:') ||
         src.startsWith('data:') ||
         this.video.srcObject
       ) {
-        this.permanentlyFailed = true;
-        console.warn('[NovaScale] Stream protected by DRM or unrecoverable CORS restriction.');
+        console.info('[NovaScale] Switching to Engine B (DRM-Safe Compositor).');
+        this._activateCompositorFallback();
         return;
       }
 
@@ -417,21 +568,24 @@
           { once: true }
         );
       } catch (_) {
-        this.permanentlyFailed = true;
+        this._activateCompositorFallback();
       }
     }
 
     _onVideoPlay() {
-      if (this.permanentlyFailed) return;
+      if (this.compositorMode || this.permanentlyFailed) {
+        this.applyConfig();
+        return;
+      }
       this._tryInit();
-      if (isProcessingActive() && this.renderer) {
+      if (isProcessingActive() && this.renderer && !this.compositorMode) {
         this.syncSize();
         this.startLoop();
       }
     }
 
     startLoop() {
-      if (this.running || this.permanentlyFailed) return;
+      if (this.running || this.compositorMode || this.permanentlyFailed) return;
       if (!this.renderer || !this.video || !this.canvas) return;
       if (this.video.paused || this.video.ended) return;
 
@@ -520,7 +674,8 @@
     }
 
     _renderStaticFrame(forceUpload = false) {
-      if (!this.renderer || !this.canvas || !this.video || this.permanentlyFailed) return;
+      if (this.compositorMode || this.permanentlyFailed) return;
+      if (!this.renderer || !this.canvas || !this.video) return;
       if (!isProcessingActive()) {
         this._showNativeVideo();
         return;
@@ -537,15 +692,19 @@
     destroy() {
       this.stopLoop();
 
-      if (this._initRetry)  { clearTimeout(this._initRetry);  this._initRetry  = null; }
-      if (this.resizeTimer) { clearTimeout(this.resizeTimer); this.resizeTimer = null; }
-      if (this.rObs)        { this.rObs.disconnect();         this.rObs        = null; }
+      if (this._initRetry)  { clearTimeout(this._initRetry);       this._initRetry  = null; }
+      if (this._splitRafId) { cancelAnimationFrame(this._splitRafId); this._splitRafId = null; }
+      if (this.resizeTimer) { clearTimeout(this.resizeTimer);      this.resizeTimer = null; }
+      if (this.rObs)        { this.rObs.disconnect();              this.rObs        = null; }
 
       window.removeEventListener('resize',             this._onResize);
+      window.removeEventListener('mousemove',          this._onMouseMove);
       document.removeEventListener('fullscreenchange', this._onFullscreen);
 
       if (this.video) {
         this.video.style.removeProperty('opacity');
+        this.video.style.removeProperty('filter');
+        this.video.removeEventListener('encrypted',      this._onEncrypted);
         this.video.removeEventListener('play',           this._onPlay);
         this.video.removeEventListener('playing',        this._onPlaying);
         this.video.removeEventListener('pause',          this._onPause);
@@ -579,7 +738,6 @@
   function attachVideo(video) {
     if (!video || video.tagName !== 'VIDEO') return;
     if (!video.isConnected) return;
-    if (video.mediaKeys) return;
 
     if (activeInstances.has(video)) {
       const existing = activeInstances.get(video);
