@@ -1,0 +1,12 @@
+NovaScale - AI Video Upscaler
+Copyright (c) 2026 ShionBanned
+
+This product incorporates GLSL shader algorithms and mathematical formulations
+adapted from or inspired by open-source projects and academic research papers.
+
+Please see LICENSE for the main NovaScale MIT License, and
+THIRD_PARTY_LICENSES.md for complete notices and full license texts covering:
+- AMD FidelityFX Super Resolution 1.0 (FSR 1.0 - EASU & RCAS) (MIT License)
+- Anime4K & Anime4K-Ultra Shader Architectures (MIT License)
+- Google Research RAISR (Romano, Isidoro, Milanfar - Academic Attribution)
+- FSRCNN (Dong, Loy, Tang - Academic Attribution)

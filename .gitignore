@@ -1,0 +1,18 @@
+# Chromium locally-generated extension metadata
+_metadata/
+
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# Dependencies & logs
+node_modules/
+npm-debug.log*
+yarn-error.log*
+*.log
+.env
+.env.*

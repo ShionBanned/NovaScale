@@ -1,0 +1,59 @@
+[
+  {
+    "id": 1,
+    "priority": 10,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "remove"
+        }
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "*"
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, HEAD, OPTIONS, POST"
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "*"
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "*"
+        },
+        {
+          "header": "timing-allow-origin",
+          "operation": "set",
+          "value": "*"
+        },
+        {
+          "header": "cross-origin-resource-policy",
+          "operation": "set",
+          "value": "cross-origin"
+        }
+      ]
+    },
+    "condition": {
+      "excludedRequestDomains": [
+        "googlevideo.com",
+        "youtube.com",
+        "ytimg.com",
+        "nflxvideo.net",
+        "ttvnw.net"
+      ],
+      "resourceTypes": [
+        "media"
+      ]
+    }
+  }
+]

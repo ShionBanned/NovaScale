@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaScale - AI Video Upscaler</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-wrapper">
+    <!-- Header / Brand HUD -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-orb" aria-hidden="true">
+          <div class="orb-inner"></div>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">NovaScale</h1>
+          <p class="brand-badge" data-i18n="brandBadge">AI Video Upscaler</p>
+        </div>
+      </div>
+      <div id="statusPill" class="status-pill active" role="status">
+        <span class="status-dot"></span>
+        <span id="statusText" data-i18n="statusActive">Active</span>
+      </div>
+    </header>
+
+    <!-- Master Switch Card -->
+    <label class="card master-switch-card" for="toggleEnable">
+      <div class="master-info">
+        <span class="master-title" data-i18n="masterTitle">GPU Processing</span>
+        <span class="master-subtitle" data-i18n="masterSubtitle">Real-time WebGL2 upscaling engine</span>
+      </div>
+      <div class="toggle-switch">
+        <input type="checkbox" id="toggleEnable" checked>
+        <span class="toggle-track"></span>
+      </div>
+    </label>
+
+    <!-- Options Container (reactive to master switch) -->
+    <main id="optionsContainer" class="options-container">
+      
+      <!-- Primary Engine Selector (Dual-Core Bento Cards) -->
+      <section class="section-group">
+        <div class="section-header">
+          <span class="section-label" data-i18n="sectionEngineLabel">Primary Upscaling Engine</span>
+        </div>
+        <div class="engine-grid">
+          <!-- Engine 1: Anime Studio (Anime4K Ultra) -->
+          <button type="button" id="btnEngineAnime" class="engine-card active" data-engine="anime" aria-pressed="true">
+            <div class="engine-header">
+              <div class="engine-icon-wrap anime-glow">
+                <svg class="engine-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="engine-tag anime-tag">Anime4K Ultra</span>
+            </div>
+            <div class="engine-body">
+              <h2 class="engine-name" data-i18n="engineAnimeName">Anime Studio</h2>
+              <p class="engine-desc" data-i18n="engineAnimeDesc">Line reconstruction &amp; denoising</p>
+            </div>
+            <div class="engine-indicator"></div>
+          </button>
+
+          <!-- Engine 2: Cinema Pro (Trilogy) -->
+          <button type="button" id="btnEngineCinema" class="engine-card" data-engine="cinema" aria-pressed="false">
+            <div class="engine-header">
+              <div class="engine-icon-wrap cinema-glow">
+                <svg class="engine-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="4" width="20" height="16" rx="3"/>
+                  <path d="M2 9h20M7 4v5M12 4v5M17 4v5"/>
+                </svg>
+              </div>
+              <span class="engine-tag cinema-tag">Cinema Pro</span>
+            </div>
+            <div class="engine-body">
+              <h2 class="engine-name" data-i18n="engineCinemaName">Cinema Pro</h2>
+              <p class="engine-desc" data-i18n="engineCinemaDesc">FSR, RAISR &amp; FSRCNN Trilogy</p>
+            </div>
+            <div class="engine-indicator"></div>
+          </button>
+        </div>
+      </section>
+
+      <!-- Anime4K Sub-profile Selector (Contextual: visible when Anime is active) -->
+      <section id="animeProfilesSection" class="section-group contextual-panel">
+        <div class="section-header">
+          <span class="section-label" data-i18n="sectionAnimeProfileLabel">Reconstruction Profile</span>
+        </div>
+        <div class="pill-group" role="radiogroup" aria-label="Anime4K-Ultra Profile">
+          <button type="button" class="pill-btn" data-profile="anime-pure" role="radio" aria-checked="false">
+            <span class="pill-name" data-i18n="profilePureName">Pure</span>
+            <span class="pill-badge" data-i18n="profilePureBadge">Pure Grain</span>
+          </button>
+          <button type="button" class="pill-btn active" data-profile="anime-dbl" role="radio" aria-checked="true">
+            <span class="pill-name" data-i18n="profileDblName">Deblur</span>
+            <span class="pill-badge" data-i18n="profileDblBadge">Recommended</span>
+          </button>
+          <button type="button" class="pill-btn" data-profile="anime-sharp" role="radio" aria-checked="false">
+            <span class="pill-name" data-i18n="profileSharpName">Sharp</span>
+            <span class="pill-badge" data-i18n="profileSharpBadge">Contrast</span>
+          </button>
+          <button type="button" class="pill-btn" data-profile="anime-dbh" role="radio" aria-checked="false">
+            <span class="pill-name" data-i18n="profileDbhName">Intense</span>
+            <span class="pill-badge" data-i18n="profileDbhBadge">Deep Ink</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Cinema Pro Sub-profile Selector (Contextual: visible when Cinema is active) -->
+      <section id="cinemaProfilesSection" class="section-group contextual-panel hidden">
+        <div class="section-header">
+          <span class="section-label" data-i18n="sectionCinemaProfileLabel">Cinema Pro Profile (Trilogy)</span>
+        </div>
+        <div class="cinema-pill-group" role="radiogroup" aria-label="Cinema Pro Profile">
+          <button type="button" class="cinema-pill-btn active" data-cinemaprofile="cinema-fsr" role="radio" aria-checked="true">
+            <span class="pill-name" data-i18n="cinemaFsrName">FSR 1.0</span>
+            <span class="pill-badge" data-i18n="cinemaFsrBadge">EASU + RCAS</span>
+          </button>
+          <button type="button" class="cinema-pill-btn" data-cinemaprofile="cinema-raisr" role="radio" aria-checked="false">
+            <span class="pill-name" data-i18n="cinemaRaisrName">RAISR</span>
+            <span class="pill-badge" data-i18n="cinemaRaisrBadge">2D Tensor</span>
+          </button>
+          <button type="button" class="cinema-pill-btn" data-cinemaprofile="cinema-fsrcnn" role="radio" aria-checked="false">
+            <span class="pill-name" data-i18n="cinemaFsrcnnName">FSRCNN</span>
+            <span class="pill-badge" data-i18n="cinemaFsrcnnBadge">Neural CNN</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Dynamic Contextual Info Banner -->
+      <div id="modeInfoBanner" class="info-banner">
+        <div class="info-icon-col">
+          <svg class="info-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4M12 8h.01"/>
+          </svg>
+        </div>
+        <p id="modeInfoText" class="info-text">
+          Anime4K-Ultra Deblur (Recommended): FSR 1.0 + Smart reconstruction with background gating and hue protection.
+        </p>
+      </div>
+
+      <!-- Sharpness / Intensity Slider Card -->
+      <section class="card slider-card">
+        <div class="slider-header">
+          <div class="slider-title-wrap">
+            <svg class="slider-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="12" r="3"/>
+              <path d="M9 12h6M2 12h1M21 12h1"/>
+            </svg>
+            <span class="slider-title" data-i18n="sliderTitle">Sharpness Intensity</span>
+          </div>
+          <span id="sharpnessVal" class="slider-val-badge">75%</span>
+        </div>
+        <div class="range-container">
+          <input type="range" id="sharpnessRange" min="0" max="100" value="75" class="custom-range" data-i18n-aria="sliderTitle" aria-label="Sharpness Intensity">
+        </div>
+        <div class="slider-scale-labels">
+          <span data-i18n="scaleSubtle">Subtle</span>
+          <span data-i18n="scaleBalanced">Balanced</span>
+          <span data-i18n="scaleUltra">Ultra</span>
+        </div>
+      </section>
+
+      <!-- Split-Screen Laser Card -->
+      <label class="card split-card" for="toggleSplit">
+        <div class="split-info">
+          <div class="split-title-wrap">
+            <svg class="split-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M12 3v18"/>
+            </svg>
+            <span class="split-title" data-i18n="splitTitle">Split-Screen Comparison</span>
+          </div>
+          <span class="split-subtitle" data-i18n="splitSubtitle">Original (left) vs Processed (right)</span>
+        </div>
+        <div class="toggle-switch">
+          <input type="checkbox" id="toggleSplit">
+          <span class="toggle-track"></span>
+        </div>
+      </label>
+
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

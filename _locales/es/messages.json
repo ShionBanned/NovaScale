@@ -1,0 +1,166 @@
+{
+  "extName": {
+    "message": "NovaScale - AI Video Upscaler",
+    "description": "Nombre de la extensión en Chrome."
+  },
+  "extDesc": {
+    "message": "Escalado de video WebGL2 con IA en tiempo real para Anime (Anime4K-Ultra + FSR 1.0) y Cine Real (FSR 1.0, Google RAISR y FSRCNN).",
+    "description": "Descripción de la extensión en español."
+  },
+  "brandBadge": {
+    "message": "AI Video Upscaler",
+    "description": "Subtítulo bajo el título de marca."
+  },
+  "statusActive": {
+    "message": "Activo",
+    "description": "Estado cuando el procesamiento GPU está encendido."
+  },
+  "statusPaused": {
+    "message": "Pausa",
+    "description": "Estado cuando el procesamiento GPU está pausado."
+  },
+  "masterTitle": {
+    "message": "Procesamiento GPU",
+    "description": "Título del interruptor maestro."
+  },
+  "masterSubtitle": {
+    "message": "Renderizado WebGL2 en tiempo real",
+    "description": "Subtítulo del interruptor maestro."
+  },
+  "sectionEngineLabel": {
+    "message": "Motor Principal de Escalado",
+    "description": "Encabezado del selector de motor."
+  },
+  "engineAnimeName": {
+    "message": "Anime Studio",
+    "description": "Nombre del motor de Anime."
+  },
+  "engineAnimeDesc": {
+    "message": "Reconstrucción de trazos y denoising",
+    "description": "Descripción breve del motor Anime Studio."
+  },
+  "engineCinemaName": {
+    "message": "Cinema Pro",
+    "description": "Nombre del motor de Cine."
+  },
+  "engineCinemaDesc": {
+    "message": "Trilogía FSR, RAISR y FSRCNN",
+    "description": "Descripción breve del motor Cinema Pro."
+  },
+  "sectionAnimeProfileLabel": {
+    "message": "Perfil de Reconstrucción",
+    "description": "Encabezado de perfiles de Anime4K-Ultra."
+  },
+  "profilePureName": {
+    "message": "Fiel",
+    "description": "Nombre del perfil Fiel."
+  },
+  "profilePureBadge": {
+    "message": "Grano Puro",
+    "description": "Insignia del perfil Fiel."
+  },
+  "profileDblName": {
+    "message": "Deblur",
+    "description": "Nombre del perfil Deblur."
+  },
+  "profileDblBadge": {
+    "message": "Recomendado",
+    "description": "Insignia del perfil Deblur."
+  },
+  "profileSharpName": {
+    "message": "Nitidez",
+    "description": "Nombre del perfil Nitidez."
+  },
+  "profileSharpBadge": {
+    "message": "Contraste",
+    "description": "Insignia del perfil Nitidez."
+  },
+  "profileDbhName": {
+    "message": "Intenso",
+    "description": "Nombre del perfil Intenso."
+  },
+  "profileDbhBadge": {
+    "message": "Deep Ink",
+    "description": "Insignia del perfil Intenso."
+  },
+  "sectionCinemaProfileLabel": {
+    "message": "Perfil Cinema Pro (Trilogía)",
+    "description": "Encabezado de perfiles Cinema Pro."
+  },
+  "cinemaFsrName": {
+    "message": "FSR 1.0",
+    "description": "Nombre del modo FSR 1.0."
+  },
+  "cinemaFsrBadge": {
+    "message": "EASU + RCAS",
+    "description": "Insignia del modo FSR 1.0."
+  },
+  "cinemaRaisrName": {
+    "message": "RAISR",
+    "description": "Nombre del modo RAISR."
+  },
+  "cinemaRaisrBadge": {
+    "message": "Tensor 2D",
+    "description": "Insignia del modo RAISR."
+  },
+  "cinemaFsrcnnName": {
+    "message": "FSRCNN",
+    "description": "Nombre del modo FSRCNN."
+  },
+  "cinemaFsrcnnBadge": {
+    "message": "Neural CNN",
+    "description": "Insignia del modo FSRCNN."
+  },
+  "sliderTitle": {
+    "message": "Intensidad de Nitidez",
+    "description": "Título del deslizador de nitidez."
+  },
+  "scaleSubtle": {
+    "message": "Sutil",
+    "description": "Etiqueta mínima del deslizador."
+  },
+  "scaleBalanced": {
+    "message": "Equilibrado",
+    "description": "Etiqueta media del deslizador."
+  },
+  "scaleUltra": {
+    "message": "Ultra",
+    "description": "Etiqueta máxima del deslizador."
+  },
+  "splitTitle": {
+    "message": "Comparación Split-Screen",
+    "description": "Título del modo pantalla dividida."
+  },
+  "splitSubtitle": {
+    "message": "Original (izq) vs Procesado (der)",
+    "description": "Subtítulo del modo pantalla dividida."
+  },
+  "descAnimePure": {
+    "message": "Anime4K-Ultra Fiel: FSR 1.0 + Thin AA suave. Preserva el 100% del grano cinematográfico, fondos al óleo y acuarelas.",
+    "description": "Descripción contextual del perfil Fiel."
+  },
+  "descAnimeDbl": {
+    "message": "Anime4K-Ultra Deblur (Recomendado): FSR 1.0 + Reconstrucción inteligente con compuerta de fondo y protección de tono.",
+    "description": "Descripción contextual del perfil Deblur."
+  },
+  "descAnimeSharp": {
+    "message": "Anime4K-Ultra Nitidez: FSR 1.0 + Unsharp Masking 9-tap. Máxima definición y micro-contraste limpio en bordes.",
+    "description": "Descripción contextual del perfil Nitidez."
+  },
+  "descAnimeDbh": {
+    "message": "Anime4K-Ultra Intenso: FSR 1.0 + Deblur pesado + Deep Ink Punch. Reconstruye trazos borrosos de fuentes de baja resolución.",
+    "description": "Descripción contextual del perfil Intenso."
+  },
+  "descCinemaFsr": {
+    "message": "AMD FSR 1.0 Oficial (GPUOpen): EASU 12-Tap + RCAS. Reconstrucción espacial anisotrópica para cine, series y acción real.",
+    "description": "Descripción contextual del perfil FSR 1.0."
+  },
+  "descCinemaRaisr": {
+    "message": "Google RAISR: Tensor de estructura 2D y filtro elíptico guiado. Nitidez orgánica en rostros y bordes respetando el grano.",
+    "description": "Descripción contextual del perfil RAISR."
+  },
+  "descCinemaFsrcnn": {
+    "message": "FSRCNN Neural: Base geométrica EASU + convolución PReLU. Ultra-definición limpia y supresión de ruido de compresión.",
+    "description": "Descripción contextual del perfil FSRCNN."
+  }
+}

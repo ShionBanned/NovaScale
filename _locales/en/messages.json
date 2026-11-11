@@ -1,0 +1,166 @@
+{
+  "extName": {
+    "message": "NovaScale - AI Video Upscaler",
+    "description": "Extension name shown in Chrome Web Store and Extensions Manager."
+  },
+  "extDesc": {
+    "message": "Real-time WebGL2 AI video upscaler for Anime (Anime4K-Ultra + FSR 1.0) and Live-Action Cinema (FSR 1.0, Google RAISR & FSRCNN).",
+    "description": "Extension description in English."
+  },
+  "brandBadge": {
+    "message": "AI Video Upscaler",
+    "description": "Subtitle badge under brand title."
+  },
+  "statusActive": {
+    "message": "Active",
+    "description": "Status pill label when GPU processing is enabled."
+  },
+  "statusPaused": {
+    "message": "Paused",
+    "description": "Status pill label when GPU processing is paused."
+  },
+  "masterTitle": {
+    "message": "GPU Processing",
+    "description": "Master switch card title."
+  },
+  "masterSubtitle": {
+    "message": "Real-time WebGL2 upscaling engine",
+    "description": "Master switch card subtitle."
+  },
+  "sectionEngineLabel": {
+    "message": "Primary Upscaling Engine",
+    "description": "Section header for engine selection."
+  },
+  "engineAnimeName": {
+    "message": "Anime Studio",
+    "description": "Title of the Anime upscaling engine."
+  },
+  "engineAnimeDesc": {
+    "message": "Line reconstruction & denoising",
+    "description": "Short description of Anime Studio engine."
+  },
+  "engineCinemaName": {
+    "message": "Cinema Pro",
+    "description": "Title of the Cinema upscaling engine."
+  },
+  "engineCinemaDesc": {
+    "message": "FSR, RAISR & FSRCNN Trilogy",
+    "description": "Short description of Cinema Pro engine."
+  },
+  "sectionAnimeProfileLabel": {
+    "message": "Reconstruction Profile",
+    "description": "Section label for Anime4K-Ultra profiles."
+  },
+  "profilePureName": {
+    "message": "Pure",
+    "description": "Name of the Pure profile."
+  },
+  "profilePureBadge": {
+    "message": "Pure Grain",
+    "description": "Badge of the Pure profile."
+  },
+  "profileDblName": {
+    "message": "Deblur",
+    "description": "Name of the Deblur profile."
+  },
+  "profileDblBadge": {
+    "message": "Recommended",
+    "description": "Badge of the Deblur profile."
+  },
+  "profileSharpName": {
+    "message": "Sharp",
+    "description": "Name of the Sharp profile."
+  },
+  "profileSharpBadge": {
+    "message": "Contrast",
+    "description": "Badge of the Sharp profile."
+  },
+  "profileDbhName": {
+    "message": "Intense",
+    "description": "Name of the Intense profile."
+  },
+  "profileDbhBadge": {
+    "message": "Deep Ink",
+    "description": "Badge of the Intense profile."
+  },
+  "sectionCinemaProfileLabel": {
+    "message": "Cinema Pro Profile (Trilogy)",
+    "description": "Section label for Cinema Pro profiles."
+  },
+  "cinemaFsrName": {
+    "message": "FSR 1.0",
+    "description": "Name of AMD FSR 1.0 mode."
+  },
+  "cinemaFsrBadge": {
+    "message": "EASU + RCAS",
+    "description": "Badge of AMD FSR 1.0 mode."
+  },
+  "cinemaRaisrName": {
+    "message": "RAISR",
+    "description": "Name of Google RAISR mode."
+  },
+  "cinemaRaisrBadge": {
+    "message": "2D Tensor",
+    "description": "Badge of Google RAISR mode."
+  },
+  "cinemaFsrcnnName": {
+    "message": "FSRCNN",
+    "description": "Name of FSRCNN Neural mode."
+  },
+  "cinemaFsrcnnBadge": {
+    "message": "Neural CNN",
+    "description": "Badge of FSRCNN Neural mode."
+  },
+  "sliderTitle": {
+    "message": "Sharpness Intensity",
+    "description": "Label above intensity slider."
+  },
+  "scaleSubtle": {
+    "message": "Subtle",
+    "description": "Left label on intensity scale."
+  },
+  "scaleBalanced": {
+    "message": "Balanced",
+    "description": "Center label on intensity scale."
+  },
+  "scaleUltra": {
+    "message": "Ultra",
+    "description": "Right label on intensity scale."
+  },
+  "splitTitle": {
+    "message": "Split-Screen Comparison",
+    "description": "Toggle title for split-screen preview."
+  },
+  "splitSubtitle": {
+    "message": "Original (left) vs Processed (right)",
+    "description": "Toggle subtitle for split-screen preview."
+  },
+  "descAnimePure": {
+    "message": "Anime4K-Ultra Pure: FSR 1.0 + Soft Thin AA. Preserves 100% original grain, oil paintings, and hand-drawn textures.",
+    "description": "Banner explanation for anime-pure mode."
+  },
+  "descAnimeDbl": {
+    "message": "Anime4K-Ultra Deblur (Recommended): FSR 1.0 + Smart reconstruction with background gating and hue protection.",
+    "description": "Banner explanation for anime-dbl mode."
+  },
+  "descAnimeSharp": {
+    "message": "Anime4K-Ultra Sharp: FSR 1.0 + 9-Tap Unsharp Masking. Maximum contour clarity and crisp micro-contrast.",
+    "description": "Banner explanation for anime-sharp mode."
+  },
+  "descAnimeDbh": {
+    "message": "Anime4K-Ultra Intense: FSR 1.0 + Heavy Deblur + Deep Ink Punch. Rebuilds blurry line art from low-res sources.",
+    "description": "Banner explanation for anime-dbh mode."
+  },
+  "descCinemaFsr": {
+    "message": "Official AMD FSR 1.0 (GPUOpen): 12-Tap EASU + RCAS. Anisotropic spatial reconstruction for movies and live-action video.",
+    "description": "Banner explanation for cinema-fsr mode."
+  },
+  "descCinemaRaisr": {
+    "message": "Google RAISR: 2D Structure Tensor & steered elliptical filter. Organic sharpness on faces and edges preserving film grain.",
+    "description": "Banner explanation for cinema-raisr mode."
+  },
+  "descCinemaFsrcnn": {
+    "message": "FSRCNN Neural: EASU geometric base + symmetric PReLU convolution. Ultra-clean cinema clarity with compression denoising.",
+    "description": "Banner explanation for cinema-fsrcnn mode."
+  }
+}
