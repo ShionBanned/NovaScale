@@ -19,74 +19,124 @@ const NOVA_HDR_GLSL = `
     return (n - 0.5) / 512.0;
   }
 
+  // Fast 1-cycle polynomial gamma 2.2 linearization for ambient sensors (eliminates 24 pow() calls/px)
+  float getLinearLuma(vec3 srgb) {
+    vec3 s = clamp(srgb, 0.0, 1.0);
+    vec3 lin = s * s * (0.72 + 0.28 * s);
+    return dot(lin, vec3(0.2126, 0.7152, 0.0722));
+  }
+
   vec3 applyNovaHDR(vec3 col, vec2 uv, sampler2D refTex, vec2 refStep) {
     if (u_hdr < 0.5) return clamp(col, 0.0, 1.0);
 
     vec3 c = clamp(col, 0.0, 1.0);
     vec3 lin = pow(max(c, vec3(1e-5)), vec3(2.2));
     float Y = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-    if (Y <= 0.00008) return vec3(0.0);
+    if (Y <= 0.00005) return vec3(0.0);
 
-    float Ls = pow(Y, 1.0 / 2.2);
-    float hermite = Ls * Ls * (3.0 - 2.0 * Ls);
-    float Ls_out;
+    float Ls     = pow(Y, 1.0 / 2.2);
+    float peakCh = max(c.r, max(c.g, c.b));
+    float minCh  = min(c.r, min(c.g, c.b));
+    float srcSat = peakCh - minCh;
 
-    if (u_hdr < 1.5) {
-      // MODE 1.0: HDR ANIME STUDIO (Cel S-Curve + Headroom-Bounded Specular Pop)
-      float contrastL = mix(Ls, hermite, 0.32);
-      float specGlow = smoothstep(0.84, 0.99, Ls) * (1.0 - Ls) * 0.16;
-      Ls_out = clamp(contrastL + specGlow, 0.0, 1.0);
-    } else {
-      // MODE 2.0: HDR CINEMA PRO (Filmic Contrast + Clean Shadow Anchor)
-      float contrastL = mix(Ls, hermite, 0.26);
-      float shadowToe = mix(0.94, 1.0, smoothstep(0.0, 0.24, Ls));
-      Ls_out = clamp(contrastL * shadowToe, 0.0, 1.0);
-    }
+    // 1. Dual-Scale Radiosity: Micro-Texture (3.0px) + Macro Local-Dimming Zone (13.0px)
+    vec2 dMicro = refStep * 3.0;
+    vec2 dMacro = refStep * 13.0;
 
-    // Local Tone Mapping (Edge-Aware Luminance Micro-Contrast without Chroma Shift)
-    vec2 d = refStep * 2.25;
-    vec3 n1 = texture(refTex, uv + vec2(-d.x, -d.y)).rgb;
-    vec3 n2 = texture(refTex, uv + vec2( d.x, -d.y)).rgb;
-    vec3 n3 = texture(refTex, uv + vec2(-d.x,  d.y)).rgb;
-    vec3 n4 = texture(refTex, uv + vec2( d.x,  d.y)).rgb;
-    vec3 lumW = vec3(0.2126, 0.7152, 0.0722);
-    float l_loc = (dot(n1, lumW) + dot(n2, lumW) + dot(n3, lumW) + dot(n4, lumW)) * 0.25;
-    float Y_loc = pow(max(l_loc, 1e-5), 2.2);
+    float Y_m1 = getLinearLuma(texture(refTex, uv + vec2(-dMicro.x, -dMicro.y)).rgb);
+    float Y_m2 = getLinearLuma(texture(refTex, uv + vec2( dMicro.x, -dMicro.y)).rgb);
+    float Y_m3 = getLinearLuma(texture(refTex, uv + vec2(-dMicro.x,  dMicro.y)).rgb);
+    float Y_m4 = getLinearLuma(texture(refTex, uv + vec2( dMicro.x,  dMicro.y)).rgb);
+    float Y_micro  = (Y_m1 + Y_m2 + Y_m3 + Y_m4) * 0.25;
+    float Ls_micro = pow(max(Y_micro, 1e-5), 1.0 / 2.2);
 
-    float cSkin = clamp(1.0 - abs(c.r - c.g * 1.25) * 3.2, 0.0, 1.0)
+    float Y_M1 = getLinearLuma(texture(refTex, uv + vec2( 0.0,      -dMacro.y)).rgb);
+    float Y_M2 = getLinearLuma(texture(refTex, uv + vec2( 0.0,       dMacro.y)).rgb);
+    float Y_M3 = getLinearLuma(texture(refTex, uv + vec2(-dMacro.x,  0.0)).rgb);
+    float Y_M4 = getLinearLuma(texture(refTex, uv + vec2( dMacro.x,  0.0)).rgb);
+    float Y_macro  = (Y_M1 + Y_M2 + Y_M3 + Y_M4) * 0.25;
+    float Ls_macro = pow(max(Y_macro, 1e-5), 1.0 / 2.2);
+
+    float Ls_loc = mix(Ls_micro, Ls_macro, 0.45);
+
+    // Skin-tone protection mask
+    float cSkin = clamp(1.0 - abs(c.r - c.g * 1.25) * 3.0, 0.0, 1.0)
                 * step(c.b, c.g)
-                * step(0.15, c.r);
-    float reliefGate = smoothstep(0.015, 0.065, abs(Y - Y_loc));
-    float rawRel = clamp((Y - Y_loc) / max(Y_loc + 0.14, 0.14), -0.28, 0.28);
-    float ltmGain = 1.0 + rawRel * reliefGate * (1.0 - cSkin * 0.72) * ((u_hdr < 1.5) ? 0.16 : 0.20);
+                * step(0.12, c.r);
 
-    float Y_out = clamp(pow(max(Ls_out, 1e-5), 2.2) * ltmGain, 0.0, 1.0);
-    float lumScale = clamp(Y_out / max(Y, 1e-5), 0.65, 1.60);
-    vec3 linHdr = lin * lumScale;
+    // SURGICAL WHITE GUARD:
+    // Distinguishes broad bright surfaces (white fur/snow/clouds where BOTH Ls and Ls_micro are high)
+    // from isolated specular glints, and monitors single-channel RGB ceiling (peakCh).
+    float broadWhiteMask = smoothstep(0.74, 0.88, Ls) * smoothstep(0.68, 0.85, Ls_micro);
+    float channelCeiling = smoothstep(0.84, 0.97, peakCh);
+    float upwardGuard    = max(broadWhiteMask * 0.88, channelCeiling * 0.92);
 
-    // Hue-preserving highlight roll-off when any channel exceeds 1.0
-    float maxCh = max(linHdr.r, max(linHdr.g, linHdr.b));
-    if (maxCh > 1.0) {
-      float headroom = (maxCh - 1.0) / max(maxCh - Y_out, 1e-4);
-      linHdr = mix(linHdr, vec3(Y_out), clamp(headroom * 0.85, 0.0, 1.0));
-    }
+    // 2. OLED Deep Black Toe with Dynamic Macro Local-Dimming + S-Curve Contrast
+    float hermite   = Ls * Ls * (3.0 - 2.0 * Ls);
+    float sStrength = (u_hdr < 1.5) ? 0.36 : 0.30;
+    float upperDamp = (Ls > 0.5) ? (1.0 - upwardGuard) : 1.0;
+    float contrastL = mix(Ls, hermite, sStrength * upperDamp);
 
-    vec3 mappedRgb = pow(max(clamp(linHdr, 0.0, 1.0), vec3(1e-5)), vec3(1.0 / 2.2));
+    float macroDarkness = 1.0 - smoothstep(0.05, 0.32, Ls_macro);
+    float toeFloor  = ((u_hdr < 1.5) ? 0.84 : 0.86) - (macroDarkness * 0.04);
+    float shadowToe = mix(toeFloor, 1.0, smoothstep(0.01, 0.22, Ls));
+    float baseL     = contrastL * shadowToe;
+
+    // 3. Helmholtz-Kohlrausch (H-K) Psychovisual Specular Inverse Tone Mapping
+    // Allows pure saturated emissive colors (blue/red/cyan magic, neons, eyes) to trigger specular pop
+    // while remaining 100% bounded by upwardGuard on white fur or near-clipped channels.
+    float hkPerceptualLuma = max(Ls, mix(Ls, peakCh, srcSat * 0.65));
+    float specBell = smoothstep(0.54, 0.85, hkPerceptualLuma) * smoothstep(0.995, 0.85, Ls);
+    float contrastWithMacro = clamp(hkPerceptualLuma - Ls_macro, 0.0, 0.5) * 0.35;
+    float specPop  = specBell * (((u_hdr < 1.5) ? 0.080 : 0.065) + contrastWithMacro * 0.04)
+                   * (1.0 - cSkin * 0.55) * (1.0 - upwardGuard);
+    float Ls_out   = clamp(baseL + specPop, 0.0, 1.0);
+
+    // 4. Dual-Scale Asymmetric Shadow/Highlight Separation + White Texture Micro-Carving
+    float diffMicro = Ls - Ls_micro;
+    float diffMacro = Ls - Ls_macro;
+    float diffL     = mix(diffMicro, diffMacro, 0.35);
+
+    float reliefGate     = smoothstep(0.005, 0.038, abs(diffMicro));
+    float darkSceneBoost = 1.0 + (1.0 - smoothstep(0.05, 0.35, Ls_loc)) * 0.58;
+    float posGuard       = 1.0 - max(broadWhiteMask, channelCeiling) * 0.85;
+    float negWhiteCarve  = 1.0 + broadWhiteMask * 0.48;
+
+    float ltmGain = (diffL >= 0.0)
+      ? (((u_hdr < 1.5) ? 0.26 : 0.32) * darkSceneBoost * posGuard)
+      : (((u_hdr < 1.5) ? 0.22 : 0.25) * negWhiteCarve);
+    float localContrast = clamp(diffMicro * ltmGain * reliefGate * (1.0 - cSkin * 0.70), -0.08, 0.10);
+    Ls_out = clamp(Ls_out + localContrast, 0.0, 1.0);
+
+    // 5. Linear Chromatic Scaling capped by real per-channel headroom
+    float Y_out        = pow(max(Ls_out, 1e-5), 2.2);
+    float rawScale     = clamp(Y_out / max(Y, 1e-5), 0.52, 1.85);
+    float maxLinCh     = pow(max(peakCh, 1e-5), 2.2);
+    float safeMaxScale = (maxLinCh > 0.65) ? mix(1.85, 1.0 / max(maxLinCh, 1e-4), smoothstep(0.65, 0.94, peakCh)) : 1.85;
+    float lumScale     = (rawScale > 1.0) ? min(rawScale, max(1.0, safeMaxScale)) : rawScale;
+    vec3 linHdr        = lin * lumScale;
+
+    vec3 compressed = linHdr / (1.0 + max(linHdr - vec3(0.82), vec3(0.0)) * 0.55);
+    float maxCh     = max(linHdr.r, max(linHdr.g, linHdr.b));
+    vec3 finalLin   = (maxCh > 0.85) ? mix(linHdr, compressed, smoothstep(0.85, 1.25, maxCh)) : linHdr;
+
+    vec3 mappedRgb = pow(max(clamp(finalLin, 0.0, 1.0), vec3(1e-5)), vec3(1.0 / 2.2));
+
+    // 6. Deep Shadow Chroma Cleanse + Rich P3 Vibrance with Neutral-White Purity Lock
     float maxC = max(mappedRgb.r, max(mappedRgb.g, mappedRgb.b));
     float minC = min(mappedRgb.r, min(mappedRgb.g, mappedRgb.b));
     float sat  = maxC - minC;
 
-    // Muted-only clean chroma vibrance (zero neon saturation, skin fully protected)
-    float skinWeight = clamp(1.0 - abs(mappedRgb.r - mappedRgb.g * 1.25) * 3.2, 0.0, 1.0)
-                     * step(mappedRgb.b, mappedRgb.g)
-                     * step(0.15, mappedRgb.r);
-    float mutedMask = (1.0 - smoothstep(0.16, 0.58, sat)) * smoothstep(0.05, 0.22, Ls_out);
-    float vibStrength = (u_hdr < 1.5) ? 0.16 : 0.12;
-    float vibBoost = mutedMask * (1.0 - skinWeight * 0.85) * vibStrength;
+    float whitePurityGuard = smoothstep(0.75, 0.88, Ls_out) * (1.0 - smoothstep(0.03, 0.12, srcSat));
+    float satWindow        = smoothstep(0.03, 0.14, sat) * (1.0 - smoothstep(0.48, 0.84, sat));
+    float shadowCleanse    = smoothstep(0.015, 0.055, Ls_out);
+    float lumaMask         = shadowCleanse * (1.0 - smoothstep(0.82, 0.96, Ls_out) * 0.75);
+    float vibStrength      = (u_hdr < 1.5) ? 0.23 : 0.19;
+    float vibBoost         = satWindow * lumaMask * (1.0 - cSkin * 0.85) * (1.0 - whitePurityGuard) * vibStrength;
 
-    float lumaNew = dot(mappedRgb, vec3(0.2126, 0.7152, 0.0722));
-    vec3 vibrant = mix(vec3(lumaNew), mappedRgb, 1.0 + vibBoost);
-    float ditherMask = step(0.004, lumaNew);
+    float lumaNew    = dot(mappedRgb, vec3(0.2126, 0.7152, 0.0722));
+    vec3 vibrant     = mix(vec3(lumaNew), mappedRgb, mix(0.92, 1.0 + vibBoost, shadowCleanse));
+    float ditherMask = step(0.003, lumaNew);
 
     return clamp(vibrant + vec3(novaDither10Bit() * ditherMask), 0.0, 1.0);
   }
@@ -95,13 +145,13 @@ const NOVA_HDR_GLSL = `
 const NOVA_SPLIT_PASS2 = `
   if (u_splitPos >= 0.0) {
     float lw = max(u_outTexelSize.x * 2.5, 0.0022);
-    float dist = abs(v_uv.x - u_splitPos);
+    float dist = abs(v_fboUv.x - u_splitPos);
     if (dist < lw) {
       float glow = 1.0 - (dist / lw);
       fragColor = vec4(mix(vec3(0.0, 0.9, 1.0), vec3(1.0), glow * 0.75), 1.0);
       return;
     }
-    if (v_uv.x < u_splitPos) {
+    if (v_fboUv.x < u_splitPos) {
       fragColor = texture(u_texture, v_uv);
       return;
     }
@@ -150,13 +200,15 @@ window.NovaShaders = {
   vertexShader: `#version 300 es
     in vec2 a_position;
     uniform float u_flipY;
+    uniform float u_mirrorX;
     out vec2 v_uv;
     out vec2 v_fboUv;
 
     void main() {
       vec2 screenUv = (a_position + 1.0) * 0.5;
-      float yCoord  = (u_flipY > 0.5) ? (1.0 - screenUv.y) : screenUv.y;
-      v_uv    = vec2(screenUv.x, yCoord);
+      float xCoord  = (u_mirrorX > 0.5) ? (1.0 - screenUv.x) : screenUv.x;
+      float yCoord  = (u_flipY > 0.5)   ? (1.0 - screenUv.y) : screenUv.y;
+      v_uv    = vec2(xCoord, yCoord);
       v_fboUv = screenUv;
       gl_Position = vec4(a_position, 0.0, 1.0);
     }
@@ -182,12 +234,12 @@ window.NovaShaders = {
     void main() {
       if (u_splitPos >= 0.0) {
         float lw = max(u_outTexelSize.x * 2.5, 0.0022);
-        float dist = abs(v_uv.x - u_splitPos);
+        float dist = abs(v_fboUv.x - u_splitPos);
         if (dist < lw) {
           fragColor = vec4(mix(vec3(0.0, 0.9, 1.0), vec3(1.0), (1.0 - dist / lw) * 0.75), 1.0);
           return;
         }
-        if (v_uv.x < u_splitPos) {
+        if (v_fboUv.x < u_splitPos) {
           fragColor = texture(u_texture, v_uv);
           return;
         }
@@ -209,11 +261,14 @@ window.NovaShaders = {
     #endif
 
     in vec2 v_uv;
+    in vec2 v_fboUv;
     out vec4 fragColor;
 
     uniform sampler2D u_texture;
+    uniform sampler2D u_historyTex;
     uniform vec2      u_texelSize;
     uniform float     u_sharpness;
+    uniform float     u_temporalStrength;
 
     float getLuma(vec3 c) { return dot(vec3(0.299, 0.587, 0.114), c); }
 
@@ -221,7 +276,8 @@ window.NovaShaders = {
       float diff = getLuma(sampleCol) - lCenter;
       vec3 cDiff = sampleCol - center;
       float dist2 = diff * diff * 0.70 + dot(cDiff, cDiff) * 0.30;
-      float w = spatialW * exp(-dist2 * invSigma2);
+      float x = dist2 * invSigma2;
+      float w = spatialW / (1.0 + x + 0.48 * x * x);
       accC += sampleCol * w;
       accW += w;
     }
@@ -259,10 +315,12 @@ window.NovaShaders = {
       bilateralTap(c_c, lc, c_b,  0.65, invSigma2, accC, accW);
       bilateralTap(c_c, lc, c_l,  0.65, invSigma2, accC, accW);
       bilateralTap(c_c, lc, c_r,  0.65, invSigma2, accC, accW);
-      bilateralTap(c_c, lc, c_tl, 0.40, invSigma2, accC, accW);
-      bilateralTap(c_c, lc, c_tr, 0.40, invSigma2, accC, accW);
-      bilateralTap(c_c, lc, c_bl, 0.40, invSigma2, accC, accW);
-      bilateralTap(c_c, lc, c_br, 0.40, invSigma2, accC, accW);
+      if (mag >= 0.008) {
+        bilateralTap(c_c, lc, c_tl, 0.40, invSigma2, accC, accW);
+        bilateralTap(c_c, lc, c_tr, 0.40, invSigma2, accC, accW);
+        bilateralTap(c_c, lc, c_bl, 0.40, invSigma2, accC, accW);
+        bilateralTap(c_c, lc, c_br, 0.40, invSigma2, accC, accW);
+      }
 
       vec3 denoised = accC / accW;
 
@@ -286,6 +344,14 @@ window.NovaShaders = {
         denoised = mix(denoised, strokePre + preDog, isEdge * 0.72);
       }
 
+      if (u_temporalStrength > 0.01) {
+        vec3 prevCol = texture(u_historyTex, v_fboUv).rgb;
+        float motion = length(denoised - prevCol) + abs(getLuma(denoised) - getLuma(prevCol)) * 1.5;
+        float motionGate = 1.0 - smoothstep(0.015, 0.085, motion);
+        float blendFactor = clamp(u_temporalStrength * 0.72 * motionGate, 0.0, 0.75);
+        denoised = mix(denoised, prevCol, blendFactor);
+      }
+
       fragColor = vec4(clamp(denoised, 0.0, 1.0), 1.0);
     }
   `,
@@ -302,17 +368,21 @@ window.NovaShaders = {
     #endif
 
     in vec2 v_uv;
+    in vec2 v_fboUv;
     out vec4 fragColor;
 
     uniform sampler2D u_texture;
+    uniform sampler2D u_historyTex;
     uniform vec2      u_texelSize;
     uniform float     u_sharpness;
+    uniform float     u_temporalStrength;
 
     float getLuma(vec3 c) { return dot(vec3(0.299, 0.587, 0.114), c); }
 
     void bilateralTap(vec3 center, float lCenter, vec3 sampleCol, float spatialW, float invSigma2, inout vec3 accC, inout float accW) {
       float diff = getLuma(sampleCol) - lCenter;
-      float w = spatialW * exp(-(diff * diff) * invSigma2);
+      float x = (diff * diff) * invSigma2;
+      float w = spatialW / (1.0 + x + 0.48 * x * x);
       accC += sampleCol * w;
       accW += w;
     }
@@ -364,7 +434,17 @@ window.NovaShaders = {
 
       vec3 mnLocal = min(c_c, min(min(c_t, c_b), min(c_l, c_r)));
       vec3 mxLocal = max(c_c, max(max(c_t, c_b), max(c_l, c_r)));
-      fragColor = vec4(clamp(restored, max(mnLocal - 0.025 * sharp, 0.0), min(mxLocal + 0.025 * sharp, 1.0)), 1.0);
+      vec3 denoised = clamp(restored, max(mnLocal - 0.025 * sharp, 0.0), min(mxLocal + 0.025 * sharp, 1.0));
+
+      if (u_temporalStrength > 0.01) {
+        vec3 prevCol = texture(u_historyTex, v_fboUv).rgb;
+        float motion = length(denoised - prevCol) + abs(getLuma(denoised) - getLuma(prevCol)) * 1.5;
+        float motionGate = 1.0 - smoothstep(0.015, 0.085, motion);
+        float blendFactor = clamp(u_temporalStrength * 0.72 * motionGate, 0.0, 0.75);
+        denoised = mix(denoised, prevCol, blendFactor);
+      }
+
+      fragColor = vec4(clamp(denoised, 0.0, 1.0), 1.0);
     }
   `,
 
@@ -528,7 +608,8 @@ window.NovaShaders = {
       float dn = dot(off, n_dir) * scaleN;
       float dt = dot(off, t_dir) * scaleT;
       float d2 = min(dn * dn + dt * dt, 3.0);
-      float w = (1.0 - lob * d2) * exp(-4.0 * d2);
+      float t = max(1.0 - d2 * 0.3333, 0.0);
+      float w = (1.0 - lob * d2) * (t * t * t);
       aC += c * w;
       aW += w;
     }
@@ -580,10 +661,12 @@ window.NovaShaders = {
       float lambda1 = max((tr + disc) * 0.5, 0.0);
       float lambda2 = max((tr - disc) * 0.5, 0.0);
 
-      float denom = jxx - jyy;
-      float theta = (abs(jxy) + abs(denom) > 0.000001) ? (0.5 * atan(2.0 * jxy, denom)) : 0.0;
-      vec2 n_dir = vec2(cos(theta), sin(theta));
-      vec2 t_dir = vec2(-sin(theta), cos(theta));
+      vec2 rawN = (jxx >= jyy)
+        ? vec2(jxx - jyy + disc, 2.0 * jxy)
+        : vec2(2.0 * jxy, jyy - jxx + disc);
+      float rawLen = length(rawN);
+      vec2 n_dir = (rawLen > 1e-6) ? (rawN / rawLen) : vec2(1.0, 0.0);
+      vec2 t_dir = vec2(-n_dir.y, n_dir.x);
 
       float strength = sqrt(lambda1);
       float coherence = clamp((lambda1 - lambda2) / max(lambda1 + lambda2, 0.0001), 0.0, 1.0);
@@ -665,8 +748,10 @@ window.NovaShaders = {
       vec3 finalColor = (cas_b * w + cas_d * w + cas_f * w + cas_h * w + cas_e) * rcpWeight;
       finalColor = clamp(finalColor, max(mnRGB - 0.045 * sharp * mlBoost, 0.0), min(mxRGB + 0.045 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, finalColor, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = finalColor;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, finalColor, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -726,8 +811,10 @@ window.NovaShaders = {
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(sn_p, sn_n)));
       finalColor = clamp(finalColor, max(mnLocal - 0.045 * sharp * mlBoost, 0.0), min(mxLocal + 0.045 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, finalColor, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = finalColor;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, finalColor, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -803,8 +890,10 @@ window.NovaShaders = {
       vec3 mxSym = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_n1, c_n2), max(c_t1, c_t2))));
       vec3 finalColor = clamp(neural, max(mnSym - 0.045 * sharp * mlBoost, 0.0), min(mxSym + 0.045 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, finalColor, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = finalColor;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, finalColor, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -853,8 +942,10 @@ window.NovaShaders = {
       vec3 avg = (cas_e + cas_b + cas_d + cas_f + cas_h) * 0.20;
       vec3 finalColor = mix(rcasColor, avg, edge * 0.10 * sharp);
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, clamp(finalColor, 0.0, 1.0), smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = clamp(finalColor, 0.0, 1.0);
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, outRgb, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -941,8 +1032,10 @@ window.NovaShaders = {
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_tl, c_tr), max(c_bl, c_br))));
       vec3 cleanAnime = clamp(deblurred, max(mnLocal - 0.04 * sharp * mlBoost, 0.0), min(mxLocal + 0.04 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, cleanAnime, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = cleanAnime;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, cleanAnime, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -984,8 +1077,10 @@ window.NovaShaders = {
       vec3 usm = c_c + (c_c - c_ring) * (sharp * 2.25 * mlBoost) * (0.35 + 0.65 * edgeMask);
       usm = clamp(usm, max(mnLocal - 0.045 * sharp * mlBoost, 0.0), min(mxLocal + 0.045 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, usm, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = usm;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, usm, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `,
@@ -1070,8 +1165,10 @@ window.NovaShaders = {
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_tl, c_tr), max(c_bl, c_br))));
       vec3 cleanIntense = clamp(deblurred, max(mnLocal - 0.045 * sharp * mlBoost, 0.0), min(mxLocal + 0.045 * sharp * mlBoost, 1.0));
 
-      vec3 origColor = texture(u_texture, v_uv).rgb;
-      vec3 outRgb = mix(origColor, cleanIntense, smoothstep(0.0, 0.08, sharp));
+      vec3 outRgb = cleanIntense;
+      if (sharp < 0.08) {
+        outRgb = mix(texture(u_texture, v_uv).rgb, cleanIntense, smoothstep(0.0, 0.08, sharp));
+      }
       fragColor = vec4(applyNovaHDR(outRgb, v_fboUv, u_upscaledTex, u_outTexelSize), 1.0);
     }
   `
