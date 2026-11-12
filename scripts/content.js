@@ -96,14 +96,13 @@
     const satEl = document.getElementById('ns-drm-sat');
 
     if (config.hdr) {
-      // Balanced 9-point ACES filmic table & subtle saturation in Engine B compositor
       const curve = isAnime
-        ? '0.0 0.095 0.22 0.37 0.525 0.67 0.80 0.91 1.0'
-        : '0.0 0.09 0.215 0.365 0.515 0.66 0.79 0.90 1.0';
+        ? '0.0 0.082 0.208 0.355 0.505 0.672 0.830 0.932 1.0'
+        : '0.0 0.085 0.214 0.358 0.502 0.662 0.820 0.924 1.0';
       if (rEl) rEl.setAttribute('tableValues', curve);
       if (gEl) gEl.setAttribute('tableValues', curve);
       if (bEl) bEl.setAttribute('tableValues', curve);
-      if (satEl) satEl.setAttribute('values', isAnime ? '1.08' : '1.06');
+      if (satEl) satEl.setAttribute('values', isAnime ? '1.10' : '1.08');
     } else {
       if (rEl) rEl.setAttribute('tableValues', '0 1');
       if (gEl) gEl.setAttribute('tableValues', '0 1');
@@ -400,17 +399,16 @@
       this.canvas.style.width  = `${Math.round(renderW)}px`;
       this.canvas.style.height = `${Math.round(renderH)}px`;
 
-      // Match the physical canvas pixels cleanly to player size (or native video resolution
-      // if larger) preserving exact aspect ratio so Chrome never applies bilinear downscaling
-      // over Pass-2 1px sharpening.
-      const dpr   = Math.min(window.devicePixelRatio || 1, 2.0);
-      const dispW = Math.round(renderW * dpr);
-      const dispH = Math.round(renderH * dpr);
+      // Match the physical canvas pixels cleanly to the displayed player size (capped
+      // at 2560x1440) preserving exact aspect ratio and avoiding compositor downscaling blur.
+      const dpr    = Math.min(window.devicePixelRatio || 1, 2.0);
+      const dispW  = Math.round(renderW * dpr);
+      const dispH  = Math.round(renderH * dpr);
       const aspect = renderW / Math.max(1, renderH);
-      let targW = Math.max(dispW, vW);
-      let targH = Math.round(targW / Math.max(0.01, aspect));
-      if (targW > 3840) { targW = 3840; targH = Math.round(3840 / aspect); }
-      if (targH > 2160) { targH = 2160; targW = Math.round(2160 * aspect); }
+      let targW    = dispW;
+      let targH    = dispH;
+      if (targW > 2560) { targW = 2560; targH = Math.round(2560 / aspect); }
+      if (targH > 1440) { targH = 1440; targW = Math.round(1440 * aspect); }
       targW = Math.max(1, targW);
       targH = Math.max(1, targH);
 
@@ -625,36 +623,35 @@
     }
 
     _scheduleNextFrame(tickFn) {
-      if (!this.running) return;
+      if (!this.running || !this.video) return;
 
       if (this.watchdogTimer) {
         clearTimeout(this.watchdogTimer);
         this.watchdogTimer = null;
       }
+      if (this.rafId !== null) {
+        try { cancelAnimationFrame(this.rafId); } catch (_) {}
+        this.rafId = null;
+      }
+      if (this.vfcId !== null && 'cancelVideoFrameCallback' in this.video) {
+        try { this.video.cancelVideoFrameCallback(this.vfcId); } catch (_) {}
+        this.vfcId = null;
+      }
 
       if ('requestVideoFrameCallback' in this.video) {
         try {
           this.vfcId = this.video.requestVideoFrameCallback(() => {
-            if (this.watchdogTimer) {
-              clearTimeout(this.watchdogTimer);
-              this.watchdogTimer = null;
-            }
+            this.vfcId = null;
             tickFn(true);
           });
-
-          // Watchdog: if rVFC stalls >65ms (e.g. MSE buffering or background throttling),
-          // keep the render loop responsive via requestAnimationFrame.
-          this.watchdogTimer = setTimeout(() => {
-            this.watchdogTimer = null;
-            if (this.running && !document.hidden) {
-              this.rafId = requestAnimationFrame(() => tickFn(false));
-            }
-          }, 65);
           return;
         } catch (_) {}
       }
 
-      this.rafId = requestAnimationFrame(() => tickFn(false));
+      this.rafId = requestAnimationFrame(() => {
+        this.rafId = null;
+        tickFn(false);
+      });
     }
 
     stopLoop() {
