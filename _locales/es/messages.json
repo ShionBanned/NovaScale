@@ -194,5 +194,13 @@
   "deepModeSubtitle": {
     "message": "Sidecar RTX (APISR / SPAN por DirectML)",
     "description": "Subtitulo para el interruptor de Modo Profundo IA"
+  },
+  "deepModeSubtitleAnime": {
+    "message": "Reconstrucción Profunda APISR 2.0x (Líneas y Cels)",
+    "description": "Subtitulo Anime para Modo Profundo IA"
+  },
+  "deepModeSubtitleCinema": {
+    "message": "Atención Profunda SPAN 2.0x (Texturas y Poros)",
+    "description": "Subtitulo Cine para Modo Profundo IA"
   }
 }

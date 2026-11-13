@@ -206,6 +206,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (toggleDeepMode) {
       toggleDeepMode.checked = state.deepMode;
+      const card = toggleDeepMode.closest('.deepmode-card');
+      if (card) card.classList.toggle('active', Boolean(state.deepMode));
+    }
+    if (deepModeSubtitle) {
+      deepModeSubtitle.textContent = state.engine === 'anime'
+        ? t('deepModeSubtitleAnime', 'APISR Deep Line & Cel Reconstruction (2.0x)')
+        : t('deepModeSubtitleCinema', 'SPAN Deep Attention & Texture Recovery (2.0x)');
     }
     if (toggleSplit) {
       toggleSplit.checked = state.splitScreen;

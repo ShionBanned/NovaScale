@@ -40,6 +40,7 @@
     return Boolean(config.enabled) && (
       Number(config.sharpness) > 0.001 ||
       Boolean(config.hdr) ||
+      Boolean(config.deepMode) ||
       Boolean(config.splitScreen)
     );
   }
@@ -81,7 +82,8 @@
     const modeStr = String(config.mode || 'anime-dbl');
     const isAnime = !modeStr.startsWith('cinema');
     const sharp = Math.max(0, Math.min(1, Number(config.sharpness) || 0));
-    const strength = sharp * (isAnime ? 0.55 : 0.42);
+    const deepMul  = config.deepMode ? 1.15 : 1.0;
+    const strength = sharp * (isAnime ? 0.50 : 0.38) * deepMul;
     const center = (1 + 4 * strength).toFixed(4);
     const neighbor = (-strength).toFixed(4);
 
@@ -416,12 +418,14 @@
 
       // 1.5x Supersampling Target Grid (never downscale below 1.35x native video resolution,
       // capped cleanly at 2560x1440 preserving exact aspect ratio).
-      const dpr    = Math.min(window.devicePixelRatio || 1, 2.0);
-      const aspect = renderW / Math.max(1, renderH);
-      const dispW  = Math.round(renderW * dpr * 1.5);
-      const minUpW = Math.round(vW * 1.35);
-      let targW    = Math.max(dispW, minUpW);
-      let targH    = Math.round(targW / aspect);
+      const dpr      = Math.min(window.devicePixelRatio || 1, 2.0);
+      const aspect   = renderW / Math.max(1, renderH);
+      const ssFactor = config.deepMode ? 2.0 : 1.5;
+      const vidScale = config.deepMode ? 1.75 : 1.35;
+      const dispW    = Math.round(renderW * dpr * ssFactor);
+      const minUpW   = Math.round(vW * vidScale);
+      let targW      = Math.max(dispW, minUpW);
+      let targH      = Math.round(targW / aspect);
       if (targW > 2560) { targW = 2560; targH = Math.round(2560 / aspect); }
       if (targH > 1440) { targH = 1440; targW = Math.round(1440 * aspect); }
       targW = Math.max(1, targW);
@@ -523,8 +527,11 @@
         this.renderer.setSharpness(sharpness);
         this.renderer.setHdr(hdr);
         this.renderer.setMultiLayer(multiLayer);
+        if (typeof this.renderer.setDeepMode === 'function') {
+          this.renderer.setDeepMode(deepMode);
+        }
         const isAnimeMode = !String(mode || 'anime-dbl').startsWith('cinema');
-        this.renderer.setTemporalDenoise(multiLayer ? (isAnimeMode ? 0.28 : 0.16) : 0.0);
+        this.renderer.setTemporalDenoise((multiLayer || deepMode) ? (isAnimeMode ? 0.32 : 0.20) : 0.0);
         this.renderer.setSplit(splitScreen ? (this.splitPos || 0.5) : -1.0);
 
         this.syncSize();
@@ -635,10 +642,15 @@
 
         if (!document.hidden && this.video.readyState >= 2 && this.canvas.width > 0) {
           let sourceForRender = this.video;
+          let usingSidecar = false;
           if (config.deepMode && this.nativeBridge && this.nativeBridge.connected) {
             const sidecarFrame = this.nativeBridge.submitVideoFrame(this.video);
-            if (sidecarFrame) sourceForRender = sidecarFrame;
+            if (sidecarFrame) {
+              sourceForRender = sidecarFrame;
+              usingSidecar = true;
+            }
           }
+          this.renderer.setSharpness(usingSidecar ? (config.sharpness * 0.25) : config.sharpness);
           const ok = this.renderer.render(sourceForRender, forceUpload);
           if (!ok) {
             this._attemptCorsRecovery();

@@ -14,6 +14,7 @@ class NovaScaleRenderer {
     this.sharpness         = 0.75;
     this.hdr               = false;
     this.multiLayer        = false;
+    this.deepMode          = false;
     this.splitPos          = -1.0;
     this.temporalDenoise   = 0.0;
     this.mirrorX           = false;
@@ -208,6 +209,7 @@ class NovaScaleRenderer {
       split:            gl.getUniformLocation(prog, 'u_splitPos'),
       hdr:              gl.getUniformLocation(prog, 'u_hdr'),
       multi:            gl.getUniformLocation(prog, 'u_multiLayer'),
+      deep:             gl.getUniformLocation(prog, 'u_deepMode'),
       frameIndex:       gl.getUniformLocation(prog, 'u_frameIndex')
     };
 
@@ -435,6 +437,14 @@ class NovaScaleRenderer {
     }
   }
 
+  setDeepMode(v) {
+    const nextDeep = Boolean(v);
+    if (nextDeep !== this.deepMode) {
+      this.deepMode = nextDeep;
+      this._fboDirty = true;
+    }
+  }
+
   setSplit(v) {
     this.splitPos = typeof v === 'number'
       ? Math.min(1, Math.max(-1, v))
@@ -528,7 +538,7 @@ class NovaScaleRenderer {
       }
     }
 
-    const usePassthrough = this.sharpness <= 0.001 || mode === 'off' || mode === 'passthrough';
+    const usePassthrough = (this.sharpness <= 0.001 && !this.deepMode) || mode === 'off' || mode === 'passthrough';
     const canMultiPass   = !usePassthrough && prog && prog._pass1 && this._ensureFbo(dW, dH);
     const pass2Prog      = canMultiPass ? prog : (this.programs.passthrough || prog);
     const hdrCode        = this.hdr ? (mode.startsWith('cinema') ? 2.0 : 1.0) : 0.0;
@@ -540,8 +550,8 @@ class NovaScaleRenderer {
     let use3Layer = false;
     let usePass0  = false;
     if (canMultiPass) {
-      use3Layer = Boolean(this.multiLayer && pass2Prog._pass0);
-      usePass0  = Boolean((this.multiLayer || useTemporal) && pass2Prog._pass0 && this._ensurePreFbo(srcW, srcH));
+      use3Layer = Boolean((this.multiLayer || this.deepMode) && pass2Prog._pass0);
+      usePass0  = Boolean((this.multiLayer || this.deepMode || useTemporal) && pass2Prog._pass0 && this._ensurePreFbo(srcW, srcH));
       if (!usePass0 || !useTemporal) {
         this._histValid = false;
       }
@@ -574,7 +584,8 @@ class NovaScaleRenderer {
           if (l0.historyTex)       gl.uniform1i(l0.historyTex,       hasHist ? 3 : 0);
           if (l0.temporalStrength) gl.uniform1f(l0.temporalStrength, activeTemporal);
           if (l0.texel)            gl.uniform2f(l0.texel,            1.0 / srcW, 1.0 / srcH);
-          if (l0.sharp)            gl.uniform1f(l0.sharp,            this.sharpness);
+          if (l0.sharp)            gl.uniform1f(l0.sharp,            this.sharpness * (this.deepMode ? 0.72 : 0.85));
+          if (l0.deep)             gl.uniform1f(l0.deep,             this.deepMode ? 1.0 : 0.0);
           gl.drawArrays(gl.TRIANGLES, 0, 6);
 
           if (hasHist && (needsUpload || !this._histValid)) {
@@ -647,6 +658,7 @@ class NovaScaleRenderer {
     if (loc.split)    gl.uniform1f(loc.split,    this.splitPos);
     if (loc.hdr)        gl.uniform1f(loc.hdr,        hdrCode);
     if (loc.multi)      gl.uniform1f(loc.multi,      (use3Layer && usePass0) ? 1.0 : 0.0);
+    if (loc.deep)       gl.uniform1f(loc.deep,       this.deepMode ? 1.0 : 0.0);
     if (loc.frameIndex) gl.uniform1f(loc.frameIndex, this._frameIndex);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);

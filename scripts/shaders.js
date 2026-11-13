@@ -192,6 +192,7 @@ const NOVA_PASS2_HEADER = `#version 300 es
   uniform float     u_sharpness;
   uniform float     u_splitPos;
   uniform float     u_multiLayer;
+  uniform float     u_deepMode;
   ${NOVA_HDR_GLSL}
 
   vec3 applyCinemaGrain(vec3 col, float sharp) {
@@ -218,23 +219,51 @@ const NOVA_PASS2_HEADER = `#version 300 es
     return clamp(smoothstep(0.010, 0.095, fw) * mlScale, 0.0, 1.0);
   }
 
-  // Multi-Scale Deconvolution (recovers mid-band clarity lost in 480p/720p downscaling)
-  vec3 applyMasterDeconv(vec3 col, vec2 uv, float sharp, float strengthScale) {
-    if (sharp <= 0.01) return col;
-    vec2 wideStep = getAdaptiveStep(1.35);
-    vec3 wN = texture(u_upscaledTex, uv + vec2( 0.0,        wideStep.y)).rgb;
-    vec3 wS = texture(u_upscaledTex, uv + vec2( 0.0,       -wideStep.y)).rgb;
-    vec3 wE = texture(u_upscaledTex, uv + vec2( wideStep.x, 0.0)).rgb;
-    vec3 wW = texture(u_upscaledTex, uv + vec2(-wideStep.x, 0.0)).rgb;
-    vec3 wideAvg = (wN + wS + wE + wW) * 0.25;
-    vec3 midBand = col - wideAvg;
-    float midMag = length(midBand);
-    float gate = smoothstep(0.004, 0.045, midMag) * (1.0 - smoothstep(0.28, 0.55, midMag) * 0.65);
-    float mlBoost = 1.0 + 0.30 * clamp(u_multiLayer, 0.0, 1.0);
-    vec3 boosted = col + midBand * (sharp * strengthScale * mlBoost * (0.45 + 0.55 * gate));
-    vec3 mnW = min(col, min(min(wN, wS), min(wE, wW)));
-    vec3 mxW = max(col, max(max(wN, wS), max(wE, wW)));
-    return clamp(boosted, max(mnW - 0.065 * sharp, 0.0), min(mxW + 0.065 * sharp, 1.0));
+  // Normalized Intensity Budget: prevents filter stacking when Multi-Layer or Deep Mode are active
+  float getNormalizedSharpness(float rawSharp) {
+    float s = clamp(rawSharp, 0.0, 1.0);
+    // Soften curve above 70% so 75%-100% never over-crunches edges
+    float curved = pow(s, 0.92);
+    float stackDamp = 1.0 - 0.18 * clamp(u_multiLayer, 0.0, 1.0) - 0.24 * clamp(u_deepMode, 0.0, 1.0);
+    return curved * max(stackDamp, 0.58);
+  }
+
+  // Halo-Free Deep AI Refiner: Edge-Stopping Bilateral Purification + Bounded Sub-Pixel Consolidation
+  vec3 applyMasterDeconv(vec3 sharpenedCol, vec2 uv, float rawSharp, float strengthScale) {
+    if (u_deepMode < 0.5) {
+      return sharpenedCol;
+    }
+
+    vec3 baseCol = texture(u_upscaledTex, uv).rgb;
+    vec2 step1 = u_outTexelSize * 1.15;
+    vec3 nN = texture(u_upscaledTex, uv + vec2( 0.0,      step1.y)).rgb;
+    vec3 nS = texture(u_upscaledTex, uv + vec2( 0.0,     -step1.y)).rgb;
+    vec3 nE = texture(u_upscaledTex, uv + vec2( step1.x,  0.0)).rgb;
+    vec3 nW = texture(u_upscaledTex, uv + vec2(-step1.x,  0.0)).rgb;
+    vec3 nNE = texture(u_upscaledTex, uv + vec2( step1.x,  step1.y)).rgb;
+    vec3 nNW = texture(u_upscaledTex, uv + vec2(-step1.x,  step1.y)).rgb;
+    vec3 nSE = texture(u_upscaledTex, uv + vec2( step1.x, -step1.y)).rgb;
+    vec3 nSW = texture(u_upscaledTex, uv + vec2(-step1.x, -step1.y)).rgb;
+
+    vec3 mn8 = min(baseCol, min(min(min(nN, nS), min(nE, nW)), min(min(nNE, nNW), min(nSE, nSW))));
+    vec3 mx8 = max(baseCol, max(max(max(nN, nS), max(nE, nW)), max(max(nNE, nNW), max(nSE, nSW))));
+    float localSpan = length(mx8 - mn8);
+
+    // 1. Bilateral Surface Purification: melts away compression noise in flat/gradient areas
+    //    while 100% preserving real edges
+    float flatMask = 1.0 - smoothstep(0.012, 0.075, localSpan);
+    vec3 smoothSurface = (baseCol * 2.0 + nN + nS + nE + nW + (nNE + nNW + nSE + nSW) * 0.5) / 8.0;
+    vec3 purified = mix(sharpenedCol, smoothSurface, flatMask * 0.52);
+
+    // 2. SPAN Symmetric Attention Detail Recovery strictly bounded inside [mn8, mx8] (ZERO halos!)
+    float edgeMask = smoothstep(0.018, 0.11, localSpan);
+    vec3 lap = baseCol - (nN + nS + nE + nW) * 0.25;
+    vec3 att = tanh(lap * 2.2) * edgeMask;
+    float effS = clamp(rawSharp, 0.15, 1.0) * strengthScale * 0.32;
+    vec3 refined = purified + att * effS;
+
+    // Strict anti-ringing clamp: eliminates any white/black overshoot halos created by previous passes
+    return clamp(refined, mn8, mx8);
   }
 `;
 
@@ -312,6 +341,7 @@ window.NovaShaders = {
     uniform vec2      u_texelSize;
     uniform float     u_sharpness;
     uniform float     u_temporalStrength;
+    uniform float     u_deepMode;
 
     float getLuma(vec3 c) { return dot(vec3(0.2126, 0.7152, 0.0722), c); }
 
@@ -367,24 +397,25 @@ window.NovaShaders = {
 
       vec3 denoised = accC / accW;
 
-      // 2. Native-grid stroke tangent continuity & pre-thinning before EASU
-      if (mag > 0.008) {
+      // 2. Halo-Free Native-Grid Tangent Continuity & Gentle Ramp Consolidation
+      if (mag > 0.010) {
         vec2 nDir = grad / mag;
         vec2 tDir = vec2(-nDir.y, nDir.x);
-        vec3 t1 = texture(u_texture, clamp(v_uv + tDir * s * 0.80, 0.0, 1.0)).rgb;
-        vec3 t2 = texture(u_texture, clamp(v_uv - tDir * s * 0.80, 0.0, 1.0)).rgb;
+        vec3 t1 = texture(u_texture, clamp(v_uv + tDir * s * 0.75, 0.0, 1.0)).rgb;
+        vec3 t2 = texture(u_texture, clamp(v_uv - tDir * s * 0.75, 0.0, 1.0)).rgb;
         vec3 tangSmooth = (denoised * 2.0 + t1 + t2) * 0.25;
 
-        vec3 cBright = texture(u_texture, clamp(v_uv + nDir * s * 0.85, 0.0, 1.0)).rgb;
-        vec3 cDark   = texture(u_texture, clamp(v_uv - nDir * s * 0.85, 0.0, 1.0)).rgb;
+        vec3 cBright = texture(u_texture, clamp(v_uv + nDir * s * 0.75, 0.0, 1.0)).rgb;
+        vec3 cDark   = texture(u_texture, clamp(v_uv - nDir * s * 0.75, 0.0, 1.0)).rgb;
         float lMid = (getLuma(cBright) + getLuma(cDark)) * 0.5;
-        float t = smoothstep(-0.030, 0.030, (lc - lMid) + 0.022 * u_sharpness);
+        float t = smoothstep(-0.035, 0.035, (lc - lMid) + 0.012 * u_sharpness);
         vec3 pinched = mix(cDark, cBright, t);
 
-        vec3 strokePre = mix(tangSmooth, pinched * 0.84 + (t1 + t2) * 0.08, clamp(0.45 + 0.35 * u_sharpness, 0.0, 0.85));
-        vec3 lRingCol = (c_t + c_b + c_l + c_r) * 0.25;
-        vec3 preDog = (denoised - lRingCol) * (0.45 * u_sharpness * isEdge);
-        denoised = mix(denoised, strokePre + preDog, isEdge * 0.72);
+        // Strict convex-hull neighborhood clamp in Pass 0: zero overshoot halos allowed into Pass 1
+        vec3 mnP0 = min(c_c, min(min(c_t, c_b), min(c_l, c_r)));
+        vec3 mxP0 = max(c_c, max(max(c_t, c_b), max(c_l, c_r)));
+        vec3 strokePre = clamp(mix(tangSmooth, pinched, 0.35 + 0.25 * u_sharpness), mnP0, mxP0);
+        denoised = mix(denoised, strokePre, isEdge * (0.50 + 0.15 * u_deepMode));
       }
 
       // 3. Surgical Native-Grid Debanding in flat sky/shadow cel gradients
@@ -434,6 +465,7 @@ window.NovaShaders = {
     uniform vec2      u_texelSize;
     uniform float     u_sharpness;
     uniform float     u_temporalStrength;
+    uniform float     u_deepMode;
 
     float getLuma(vec3 c) { return dot(vec3(0.2126, 0.7152, 0.0722), c); }
 
@@ -484,15 +516,15 @@ window.NovaShaders = {
 
       vec3 baseClean = accC / accW;
 
-      // 2. Pre-extract mid-frequency micro-texture before EASU/RAISR
+      // 2. Halo-free micro-texture preservation with strict neighborhood bounds
       vec3 ringAvg = (c_t + c_b + c_l + c_r + c_tl + c_tr + c_bl + c_br) * 0.125;
       vec3 highFreq = c_c - ringAvg;
       float sharp = clamp(u_sharpness, 0.0, 1.0);
-      vec3 restored = baseClean + highFreq * (detailMask * sharp * 0.85);
+      vec3 restored = baseClean + highFreq * (detailMask * sharp * 0.42);
 
       vec3 mnLocal = min(c_c, min(min(c_t, c_b), min(c_l, c_r)));
       vec3 mxLocal = max(c_c, max(max(c_t, c_b), max(c_l, c_r)));
-      vec3 denoised = clamp(restored, max(mnLocal - 0.025 * sharp, 0.0), min(mxLocal + 0.025 * sharp, 1.0));
+      vec3 denoised = clamp(restored, mnLocal, mxLocal);
 
       if (u_temporalStrength > 0.01) {
         vec3 prevCol = texture(u_historyTex, v_fboUv).rgb;
@@ -770,8 +802,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(e4.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.35);
 
       vec4 b4 = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -799,7 +831,7 @@ window.NovaShaders = {
 
       vec3 rcpWeight = 1.0 / max(1.0 + 4.0 * w, vec3(0.25));
       vec3 finalColor = (cas_b * w + cas_d * w + cas_f * w + cas_h * w + cas_e) * rcpWeight;
-      finalColor = clamp(finalColor, max(mnRGB - 0.06 * sharp * mlBoost, 0.0), min(mxRGB + 0.06 * sharp * mlBoost, 1.0));
+      finalColor = clamp(finalColor, max(mnRGB - 0.020 * sharp, 0.0), min(mxRGB + 0.020 * sharp, 1.0));
       finalColor = applyMasterDeconv(finalColor, v_fboUv, sharp, 0.95);
 
       vec3 outRgb = finalColor;
@@ -822,8 +854,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(c4_c.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.42);
 
       vec4 c4_t = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -865,7 +897,7 @@ window.NovaShaders = {
 
       vec3 mnLocal = min(c_c, min(min(min(c_t, c_b), min(c_l, c_r)), min(sn_p, sn_n)));
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(sn_p, sn_n)));
-      finalColor = clamp(finalColor, max(mnLocal - 0.06 * sharp * mlBoost, 0.0), min(mxLocal + 0.06 * sharp * mlBoost, 1.0));
+      finalColor = clamp(finalColor, max(mnLocal - 0.020 * sharp, 0.0), min(mxLocal + 0.020 * sharp, 1.0));
       finalColor = applyMasterDeconv(finalColor, v_fboUv, sharp, 0.85);
 
       vec3 outRgb = finalColor;
@@ -893,8 +925,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(c4_c.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.42);
 
       vec4 c4_t = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -947,7 +979,7 @@ window.NovaShaders = {
 
       vec3 mnSym = min(c_c, min(min(min(c_t, c_b), min(c_l, c_r)), min(min(c_n1, c_n2), min(c_t1, c_t2))));
       vec3 mxSym = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_n1, c_n2), max(c_t1, c_t2))));
-      vec3 finalColor = clamp(neural, max(mnSym - 0.06 * sharp * mlBoost, 0.0), min(mxSym + 0.06 * sharp * mlBoost, 1.0));
+      vec3 finalColor = clamp(neural, max(mnSym - 0.020 * sharp, 0.0), min(mxSym + 0.020 * sharp, 1.0));
       finalColor = applyMasterDeconv(finalColor, v_fboUv, sharp, 1.05);
 
       vec3 outRgb = finalColor;
@@ -970,8 +1002,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(e4.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.32);
 
       vec4 b4 = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -996,7 +1028,7 @@ window.NovaShaders = {
       float peak      = -mix(0.0, 0.1818, pow(sharp, 0.85)) * mlBoost;
       vec3  w         = clamp(amp * peak * (0.35 + 0.65 * edgeGate), vec3(-0.1818), vec3(0.0));
       vec3 rcpWeight  = 1.0 / max(1.0 + 4.0 * w, vec3(0.25));
-      vec3 rcasColor  = clamp((cas_b * w + cas_d * w + cas_f * w + cas_h * w + cas_e) * rcpWeight, max(mnRGB - 0.04 * sharp * mlBoost, 0.0), min(mxRGB + 0.04 * sharp * mlBoost, 1.0));
+      vec3 rcasColor  = clamp((cas_b * w + cas_d * w + cas_f * w + cas_h * w + cas_e) * rcpWeight, max(mnRGB - 0.018 * sharp, 0.0), min(mxRGB + 0.018 * sharp, 1.0));
 
       float gx = getLumaRec601(cas_f) - getLumaRec601(cas_d);
       float gy = getLumaRec601(cas_b) - getLumaRec601(cas_h);
@@ -1022,8 +1054,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(c4_c.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.55);
 
       vec4 c4_t  = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -1092,7 +1124,7 @@ window.NovaShaders = {
 
       vec3 mnLocal = min(c_c, min(min(min(c_t, c_b), min(c_l, c_r)), min(min(c_tl, c_tr), min(c_bl, c_br))));
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_tl, c_tr), max(c_bl, c_br))));
-      vec3 cleanAnime = clamp(deblurred, max(mnLocal - 0.06 * sharp * mlBoost, 0.0), min(mxLocal + 0.06 * sharp * mlBoost, 1.0));
+      vec3 cleanAnime = clamp(deblurred, max(mnLocal - 0.020 * sharp, 0.0), min(mxLocal + 0.020 * sharp, 1.0));
       cleanAnime = applyMasterDeconv(cleanAnime, v_fboUv, sharp, 0.90);
 
       vec3 outRgb = cleanAnime;
@@ -1113,8 +1145,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(c4_c.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.48);
 
       vec4 c4_t = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -1138,7 +1170,7 @@ window.NovaShaders = {
       float edgeMask   = max(max(nativeConf, smoothstep(0.010, 0.065, length(mxLocal - mnLocal))), hwEdge);
 
       vec3 usm = c_c + (c_c - c_ring) * (sharp * 2.25 * mlBoost) * (0.35 + 0.65 * edgeMask);
-      usm = clamp(usm, max(mnLocal - 0.065 * sharp * mlBoost, 0.0), min(mxLocal + 0.065 * sharp * mlBoost, 1.0));
+      usm = clamp(usm, max(mnLocal - 0.022 * sharp, 0.0), min(mxLocal + 0.022 * sharp, 1.0));
       usm = applyMasterDeconv(usm, v_fboUv, sharp, 1.15);
 
       vec3 outRgb = usm;
@@ -1159,8 +1191,8 @@ window.NovaShaders = {
       float hwEdge = getSubpxEdge(c4_c.rgb);
       ${NOVA_SPLIT_PASS2}
 
-      float sharp   = clamp(u_sharpness, 0.0, 1.0);
-      float mlBoost = 1.0 + 0.28 * clamp(u_multiLayer, 0.0, 1.0);
+      float sharp   = getNormalizedSharpness(u_sharpness);
+      float mlBoost = 1.0 + 0.12 * clamp(u_multiLayer, 0.0, 1.0);
       vec2 o = getAdaptiveStep(0.68);
 
       vec4 c4_t  = texture(u_upscaledTex, v_fboUv + vec2( 0.0,  o.y));
@@ -1227,7 +1259,7 @@ window.NovaShaders = {
 
       vec3 mnLocal = min(c_c, min(min(min(c_t, c_b), min(c_l, c_r)), min(min(c_tl, c_tr), min(c_bl, c_br))));
       vec3 mxLocal = max(c_c, max(max(max(c_t, c_b), max(c_l, c_r)), max(max(c_tl, c_tr), max(c_bl, c_br))));
-      vec3 cleanIntense = clamp(deblurred, max(mnLocal - 0.07 * sharp * mlBoost, 0.0), min(mxLocal + 0.07 * sharp * mlBoost, 1.0));
+      vec3 cleanIntense = clamp(deblurred, max(mnLocal - 0.025 * sharp, 0.0), min(mxLocal + 0.025 * sharp, 1.0));
       cleanIntense = applyMasterDeconv(cleanIntense, v_fboUv, sharp, 1.30);
 
       vec3 outRgb = cleanIntense;

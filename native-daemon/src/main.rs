@@ -4,7 +4,10 @@ use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::{
+    accept_async_with_config,
+    tungstenite::{protocol::WebSocketConfig, Message},
+};
 use tracing::{info, warn};
 
 use engine::{InferenceConfig, InferenceEngine};
@@ -39,10 +42,16 @@ async fn main() {
         .expect("Failed to bind 127.0.0.1:19480");
     info!("Listening for NovaScale extension on ws://{}/novascale-stream", addr);
 
+    let ws_cfg = WebSocketConfig {
+        max_message_size: Some(128 * 1024 * 1024),
+        max_frame_size: Some(128 * 1024 * 1024),
+        ..Default::default()
+    };
+
     while let Ok((stream, peer)) = listener.accept().await {
         let eng = Arc::clone(&engine);
         tokio::spawn(async move {
-            let Ok(ws_stream) = accept_async(stream).await else {
+            let Ok(ws_stream) = accept_async_with_config(stream, Some(ws_cfg)).await else {
                 return;
             };
             info!("Extension connected from {}", peer);
@@ -73,7 +82,6 @@ async fn main() {
                         }
                     }
                     Ok(Message::Binary(bin)) => {
-                        // Packet header: [u32 width LE][u32 height LE][RGBA8 payload...]
                         if bin.len() < 8 {
                             continue;
                         }

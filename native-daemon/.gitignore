@@ -1,0 +1,19 @@
+# Rust / Cargo build artifacts
+target/
+**/target/
+
+# Local runtime configuration
+novascale_cam_config.json
+**/novascale_cam_config.json
+
+# Test profiles & browser caches
+browser-profile/
+**/browser-profile/
+*.log
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

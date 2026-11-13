@@ -194,5 +194,13 @@
   "deepModeSubtitle": {
     "message": "RTX Sidecar (APISR / SPAN via DirectML)",
     "description": "Subtitle for Deep AI Mode toggle"
+  },
+  "deepModeSubtitleAnime": {
+    "message": "APISR Deep Line & Cel Reconstruction (2.0x)",
+    "description": "Anime subtitle for Deep AI Mode"
+  },
+  "deepModeSubtitleCinema": {
+    "message": "SPAN Deep Attention & Texture Recovery (2.0x)",
+    "description": "Cinema subtitle for Deep AI Mode"
   }
 }

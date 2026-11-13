@@ -122,6 +122,9 @@ class NovaScaleNativeBridge {
     const srcH = video.videoHeight;
     if (!srcW || !srcH) return null;
 
+    if (this.inFlight && this._inFlightSentAt && (performance.now() - this._inFlightSentAt) > 600) {
+      this.inFlight = false;
+    }
     if (!this.inFlight) {
       if (!this._srcCanvas) {
         this._srcCanvas = document.createElement('canvas');
@@ -140,6 +143,7 @@ class NovaScaleNativeBridge {
         dv.setUint32(4, srcH, true);
         packet.set(img.data, 8);
         this.inFlight = true;
+        this._inFlightSentAt = performance.now();
         this.socket.send(packet.buffer);
       } catch (_) {
         this.inFlight = false;
