@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const toggleEnable = document.getElementById('toggleEnable');
   const toggleSplit = document.getElementById('toggleSplit');
+  const toggleDeepMode = document.getElementById('toggleDeepMode');
+  const deepModeSubtitle = document.getElementById('deepModeSubtitle');
   const toggleHdr = document.getElementById('toggleHdr');
   const hdrSubtitle = document.getElementById('hdrSubtitle');
   const toggleMultiLayer = document.getElementById('toggleMultiLayer');
@@ -78,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sharpness: 0.75,
     hdr: false,
     multiLayer: false,
+    deepMode: false,
     splitScreen: false
   };
 
@@ -85,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let hasPendingSave = false;
 
   // 1. Load persisted user preferences with legacy auto-migration
-  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
+  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'deepMode', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
     if (chrome.runtime.lastError) {
       console.warn('NovaScale: failed to read local storage:', chrome.runtime.lastError);
       return;
@@ -99,6 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (res.hdr !== undefined) state.hdr = Boolean(res.hdr);
     if (res.multiLayer !== undefined) state.multiLayer = Boolean(res.multiLayer);
+    if (res.deepMode !== undefined) state.deepMode = Boolean(res.deepMode);
     if (res.splitScreen !== undefined) state.splitScreen = Boolean(res.splitScreen);
 
     // Resolve active mode and engine
@@ -127,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     updateUI();
+    notifyActiveTab(state);
   });
 
   // 2. Reactive storage synchronization when preferences change externally
@@ -166,6 +171,10 @@ document.addEventListener('DOMContentLoaded', () => {
       state.multiLayer = Boolean(changes.multiLayer.newValue);
       changed = true;
     }
+    if (changes.deepMode && changes.deepMode.newValue !== state.deepMode) {
+      state.deepMode = Boolean(changes.deepMode.newValue);
+      changed = true;
+    }
     if (changes.splitScreen && changes.splitScreen.newValue !== state.splitScreen) {
       state.splitScreen = Boolean(changes.splitScreen.newValue);
       changed = true;
@@ -194,6 +203,9 @@ document.addEventListener('DOMContentLoaded', () => {
       hdrSubtitle.textContent = state.engine === 'anime'
         ? t('hdrSubtitleAnime', 'Cel-Shading Contrast, Specular Light & Hue Gate')
         : t('hdrSubtitleCinema', 'ACES Filmic Mapping, Vibrance & 10-bit Dithering');
+    }
+    if (toggleDeepMode) {
+      toggleDeepMode.checked = state.deepMode;
     }
     if (toggleSplit) {
       toggleSplit.checked = state.splitScreen;
@@ -262,18 +274,34 @@ document.addEventListener('DOMContentLoaded', () => {
     sharpnessRange.style.background = `linear-gradient(to right, ${accentColor} 0%, ${accentColor} ${percent}%, #1e293b ${percent}%, #1e293b 100%)`;
   }
 
-  // 4. Push active updates to active browser tab
+  // 4. Push active updates to active browser tab (with auto-injection for pre-existing tabs)
   function notifyActiveTab(partialPayload) {
     try {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
         const activeTab = tabs[0];
-        if (activeTab && activeTab.id) {
-          chrome.tabs.sendMessage(activeTab.id, {
-            action: 'UPDATE_CONFIG',
-            payload: partialPayload
-          }).catch(() => {});
-        }
+        if (!activeTab || !activeTab.id) return;
+        const tabId = activeTab.id;
+
+        chrome.tabs.sendMessage(tabId, {
+          action: 'UPDATE_CONFIG',
+          payload: partialPayload
+        }).catch(() => {
+          // Tab was open before extension reload/install: dynamically inject engine & content scripts
+          if (chrome.scripting && chrome.scripting.executeScript) {
+            chrome.scripting.executeScript({
+              target: { tabId: tabId, allFrames: true },
+              files: ['core/native-bridge/native-client.js', 'scripts/shaders.js', 'scripts/webgl-engine.js', 'scripts/content.js']
+            }).then(() => {
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tabId, {
+                  action: 'UPDATE_CONFIG',
+                  payload: state
+                }).catch(() => {});
+              }, 60);
+            }).catch(() => {});
+          }
+        });
       });
     } catch (_) {}
   }
@@ -328,6 +356,14 @@ document.addEventListener('DOMContentLoaded', () => {
       state.hdr = e.target.checked;
       updateUI();
       saveImmediate({ hdr: state.hdr });
+    });
+  }
+
+  if (toggleDeepMode) {
+    toggleDeepMode.addEventListener('change', (e) => {
+      state.deepMode = e.target.checked;
+      updateUI();
+      saveImmediate({ deepMode: state.deepMode });
     });
   }
 

@@ -186,5 +186,13 @@
   "descCinemaFsrcnn": {
     "message": "FSRCNN Neural: EASU geometric base + symmetric PReLU convolution. Ultra-clean cinema clarity with compression denoising.",
     "description": "Banner explanation for cinema-fsrcnn mode."
+  },
+  "deepModeTitle": {
+    "message": "Deep AI Mode",
+    "description": "Label for Deep AI Mode toggle"
+  },
+  "deepModeSubtitle": {
+    "message": "RTX Sidecar (APISR / SPAN via DirectML)",
+    "description": "Subtitle for Deep AI Mode toggle"
   }
 }

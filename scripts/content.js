@@ -14,7 +14,11 @@
 (function () {
   'use strict';
 
-  console.info('[NovaScale] Content Script v4.0 initialized at:', location.href);
+  if (typeof window.__novascale_cleanup === 'function') {
+    try { window.__novascale_cleanup(); } catch (_) {}
+  }
+
+  console.info('[NovaScale] Content Script v4.3 initialized at:', location.href);
 
   let config = {
     enabled:     true,
@@ -22,6 +26,7 @@
     sharpness:   0.75,
     hdr:         false,
     multiLayer:  false,
+    deepMode:    false,
     splitScreen: false
   };
 
@@ -117,7 +122,7 @@
   // ── State synchronization with chrome.storage.local ──────────────────────
   if (chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(
-      ['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'splitScreen'],
+      ['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'deepMode', 'splitScreen'],
       (res) => {
         if (chrome.runtime.lastError || !res) return;
         if (res.enabled     !== undefined) config.enabled     = Boolean(res.enabled);
@@ -125,6 +130,7 @@
         if (res.sharpness   !== undefined) config.sharpness   = Number(res.sharpness);
         if (res.hdr         !== undefined) config.hdr         = Boolean(res.hdr);
         if (res.multiLayer  !== undefined) config.multiLayer  = Boolean(res.multiLayer);
+        if (res.deepMode    !== undefined) config.deepMode    = Boolean(res.deepMode);
         if (res.splitScreen !== undefined) config.splitScreen = Boolean(res.splitScreen);
         scheduleUpdateAll();
       }
@@ -137,6 +143,7 @@
       if ('sharpness'   in changes) config.sharpness   = Number(changes.sharpness.newValue);
       if ('hdr'         in changes) config.hdr         = Boolean(changes.hdr.newValue);
       if ('multiLayer'  in changes) config.multiLayer  = Boolean(changes.multiLayer.newValue);
+      if ('deepMode'    in changes) config.deepMode    = Boolean(changes.deepMode.newValue);
       if ('splitScreen' in changes) config.splitScreen = Boolean(changes.splitScreen.newValue);
       scheduleUpdateAll();
     });
@@ -194,6 +201,7 @@
       this.resizeTimer       = null;
       this.rObs              = null;
       this._initRetry        = null;
+      this.nativeBridge      = null;
 
       this._onMouseMove = (e) => {
         if (this.compositorMode || this.permanentlyFailed) return;
@@ -309,6 +317,13 @@
       if (this.canvas) {
         try { this.canvas.remove(); } catch (_) {}
       }
+      // Remove any orphaned overlay canvas from a previous extension reload
+      try {
+        const nextEl = this.video.nextElementSibling;
+        if (nextEl && nextEl.classList && nextEl.classList.contains('novascale-canvas-overlay')) {
+          nextEl.remove();
+        }
+      } catch (_) {}
 
       const canvas = document.createElement('canvas');
       canvas.className = 'novascale-canvas-overlay';
@@ -355,7 +370,7 @@
       const videoRect = getVideoRect(this.video);
       if (videoRect.width < 10 || videoRect.height < 10) return;
 
-      const parent = this.canvas.offsetParent || this.canvas.parentElement;
+      const parent = this.video.offsetParent || this.canvas.offsetParent || this.canvas.parentElement;
       if (!parent) return;
       const parentRect = parent.getBoundingClientRect();
 
@@ -399,14 +414,14 @@
       this.canvas.style.width  = `${Math.round(renderW)}px`;
       this.canvas.style.height = `${Math.round(renderH)}px`;
 
-      // Match the physical canvas pixels cleanly to the displayed player size (capped
-      // at 2560x1440) preserving exact aspect ratio and avoiding compositor downscaling blur.
+      // 1.5x Supersampling Target Grid (never downscale below 1.35x native video resolution,
+      // capped cleanly at 2560x1440 preserving exact aspect ratio).
       const dpr    = Math.min(window.devicePixelRatio || 1, 2.0);
-      const dispW  = Math.round(renderW * dpr);
-      const dispH  = Math.round(renderH * dpr);
       const aspect = renderW / Math.max(1, renderH);
-      let targW    = dispW;
-      let targH    = dispH;
+      const dispW  = Math.round(renderW * dpr * 1.5);
+      const minUpW = Math.round(vW * 1.35);
+      let targW    = Math.max(dispW, minUpW);
+      let targH    = Math.round(targW / aspect);
       if (targW > 2560) { targW = 2560; targH = Math.round(2560 / aspect); }
       if (targH > 1440) { targH = 1440; targW = Math.round(1440 * aspect); }
       targW = Math.max(1, targW);
@@ -490,13 +505,26 @@
         }
       }
 
-      const { mode, sharpness, hdr, multiLayer, splitScreen } = config;
+      const { mode, sharpness, hdr, multiLayer, deepMode, splitScreen } = config;
+
+      if (deepMode && window.NovaScaleNativeBridge) {
+        if (!this.nativeBridge) {
+          this.nativeBridge = new window.NovaScaleNativeBridge();
+        }
+        this.nativeBridge.ensureConnected().then((ok) => {
+          if (ok && this.nativeBridge) this.nativeBridge.sendConfig(mode, sharpness);
+        });
+      } else if (this.nativeBridge) {
+        this.nativeBridge.disconnect();
+      }
 
       if (isProcessingActive()) {
         this.renderer.setMode(mode);
         this.renderer.setSharpness(sharpness);
         this.renderer.setHdr(hdr);
         this.renderer.setMultiLayer(multiLayer);
+        const isAnimeMode = !String(mode || 'anime-dbl').startsWith('cinema');
+        this.renderer.setTemporalDenoise(multiLayer ? (isAnimeMode ? 0.28 : 0.16) : 0.0);
         this.renderer.setSplit(splitScreen ? (this.splitPos || 0.5) : -1.0);
 
         this.syncSize();
@@ -606,7 +634,12 @@
         }
 
         if (!document.hidden && this.video.readyState >= 2 && this.canvas.width > 0) {
-          const ok = this.renderer.render(this.video, forceUpload);
+          let sourceForRender = this.video;
+          if (config.deepMode && this.nativeBridge && this.nativeBridge.connected) {
+            const sidecarFrame = this.nativeBridge.submitVideoFrame(this.video);
+            if (sidecarFrame) sourceForRender = sidecarFrame;
+          }
+          const ok = this.renderer.render(sourceForRender, forceUpload);
           if (!ok) {
             this._attemptCorsRecovery();
             return;
@@ -721,6 +754,11 @@
         this.canvas = null;
       }
 
+      if (this.nativeBridge) {
+        try { this.nativeBridge.disconnect(); } catch (_) {}
+        this.nativeBridge = null;
+      }
+
       if (this.renderer) {
         this.renderer.destroy();
         this.renderer = null;
@@ -808,4 +846,12 @@
   if (document.documentElement) {
     domObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  window.__novascale_cleanup = () => {
+    try { domObserver.disconnect(); } catch (_) {}
+    activeInstances.forEach((inst) => {
+      try { inst.destroy(); } catch (_) {}
+    });
+    activeInstances.clear();
+  };
 })();

@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "3.1.0",
+  "version": "3.4.0",
   "description": "__MSG_extDesc__",
   "default_locale": "en",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
     "activeTab",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -32,20 +33,27 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "all_frames": true,
       "match_about_blank": true,
       "run_at": "document_start",
       "world": "MAIN",
-      "js": ["scripts/injector.js"]
+      "js": [
+        "scripts/injector.js"
+      ]
     },
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "<all_urls>"
+      ],
       "all_frames": true,
       "match_about_blank": true,
       "run_at": "document_idle",
       "world": "ISOLATED",
       "js": [
+        "core/native-bridge/native-client.js",
         "scripts/shaders.js",
         "scripts/webgl-engine.js",
         "scripts/content.js"

@@ -751,3 +751,32 @@ html, body {
   color: #d8b4fe;
   border: 1px solid rgba(168, 85, 247, 0.35);
 }
+
+/* ── Deep AI Mode Card (Sprint 3 RTX Sidecar) ───────────────────────────── */
+.deepmode-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 7px 12px;
+}
+.deepmode-card:hover {
+  border-color: rgba(16, 185, 129, 0.38);
+  background: rgba(22, 32, 51, 0.85);
+}
+.deepmode-svg {
+  width: 14px;
+  height: 14px;
+  color: #10b981;
+}
+.deepmode-badge {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}

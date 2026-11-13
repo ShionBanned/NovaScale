@@ -186,5 +186,13 @@
   "descCinemaFsrcnn": {
     "message": "FSRCNN Neural: Base geométrica EASU + convolución PReLU. Ultra-definición limpia y supresión de ruido de compresión.",
     "description": "Descripción contextual del perfil FSRCNN."
+  },
+  "deepModeTitle": {
+    "message": "Modo Profundo IA",
+    "description": "Etiqueta para el interruptor de Modo Profundo IA"
+  },
+  "deepModeSubtitle": {
+    "message": "Sidecar RTX (APISR / SPAN por DirectML)",
+    "description": "Subtitulo para el interruptor de Modo Profundo IA"
   }
 }

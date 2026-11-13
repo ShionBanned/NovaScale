@@ -1,0 +1,22 @@
+[package]
+name = "novascale-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "NovaScale Sprint 3 Out-of-Process AI Super-Resolution Sidecar (TensorRT / DirectML / CUDA)"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+tokio-tungstenite = "0.23"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ort = { version = "=2.0.0-rc.4", default-features = false, features = ["load-dynamic", "ndarray", "download-binaries", "copy-dylibs"] }
+ndarray = "0.15"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[features]
+default = ["directml"]
+directml = ["ort/directml"]
+tensorrt = ["ort/tensorrt", "ort/cuda"]
+cuda = ["ort/cuda"]

@@ -38,11 +38,16 @@ class NovaScaleRenderer {
     this._histFboH         = 0;
     this._histValid        = false;
 
+    this._hasFloatFbo      = false;
+    this._frameIndex       = 0;
     this._blackFrameCount  = 0;
     this._blackProbeStart  = -1;
     this._lastProbeTime    = -1;
     this._drmVerifiedClean = false;
     this._probeBuf         = new Uint8Array(4);
+    this._probePbo         = null;
+    this._probeSync        = null;
+    this._probePointIdx    = 0;
 
     this._lastUploadedTime = -1;
     this._lastVideoW       = 0;
@@ -67,6 +72,9 @@ class NovaScaleRenderer {
       this._histFboW = 0;
       this._histFboH = 0;
       this._histValid = false;
+      this._hasFloatFbo = false;
+      this._probePbo = null;
+      this._probeSync = null;
       console.warn('[NovaScale] WebGL context lost.');
     };
     this._onRestored = () => {
@@ -90,6 +98,10 @@ class NovaScaleRenderer {
       this._histFboH         = 0;
       this._histValid        = false;
       this._fboDirty         = true;
+      this._hasFloatFbo      = false;
+      this._probePbo         = null;
+      this._probeSync        = null;
+      this._probePointIdx    = 0;
       console.info('[NovaScale] WebGL context restored.');
       this._initGL();
     };
@@ -120,6 +132,9 @@ class NovaScaleRenderer {
     }
 
     const gl = this.gl;
+    const extFloat = gl.getExtension('EXT_color_buffer_float');
+    gl.getExtension('OES_texture_float_linear');
+    this._hasFloatFbo = Boolean(extFloat);
     try {
       if ('drawingBufferColorSpace' in gl) {
         gl.drawingBufferColorSpace = 'srgb';
@@ -192,7 +207,8 @@ class NovaScaleRenderer {
       temporalStrength: gl.getUniformLocation(prog, 'u_temporalStrength'),
       split:            gl.getUniformLocation(prog, 'u_splitPos'),
       hdr:              gl.getUniformLocation(prog, 'u_hdr'),
-      multi:            gl.getUniformLocation(prog, 'u_multiLayer')
+      multi:            gl.getUniformLocation(prog, 'u_multiLayer'),
+      frameIndex:       gl.getUniformLocation(prog, 'u_frameIndex')
     };
 
     return prog;
@@ -236,6 +252,28 @@ class NovaScaleRenderer {
     this.programs['anime-dbh']     = bindChain(pass0Anime,  pass1Easu,  sh.pass2_Anime_DbH);
   }
 
+  _allocFboAttachment(fbo, tex, w, h) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    if (this._hasFloatFbo) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.activeTexture(gl.TEXTURE0);
+        return true;
+      }
+      // Fallback transparently to 8-bit RGBA if RGBA16F FBO is incomplete on this GPU driver
+      this._hasFloatFbo = false;
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.activeTexture(gl.TEXTURE0);
+    return status === gl.FRAMEBUFFER_COMPLETE;
+  }
+
   _ensurePreFbo(srcW, srcH) {
     const gl = this.gl;
     if (!gl) return false;
@@ -257,15 +295,7 @@ class NovaScaleRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this._preFboTex);
     }
 
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, srcW, srcH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._preFbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._preFboTex, 0);
-
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.activeTexture(gl.TEXTURE0);
-
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    if (!this._allocFboAttachment(this._preFbo, this._preFboTex, srcW, srcH)) {
       this._preFboW = 0;
       this._preFboH = 0;
       return false;
@@ -298,15 +328,7 @@ class NovaScaleRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this._histFboTex);
     }
 
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, srcW, srcH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._histFbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._histFboTex, 0);
-
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.activeTexture(gl.TEXTURE0);
-
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    if (!this._allocFboAttachment(this._histFbo, this._histFboTex, srcW, srcH)) {
       this._histFboW = 0;
       this._histFboH = 0;
       this._histValid = false;
@@ -341,15 +363,7 @@ class NovaScaleRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this._fboTex);
     }
 
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, dW, dH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._fboTex, 0);
-
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.activeTexture(gl.TEXTURE0);
-
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    if (!this._allocFboAttachment(this._fbo, this._fboTex, dW, dH)) {
       this._fboW = 0;
       this._fboH = 0;
       return false;
@@ -505,6 +519,7 @@ class NovaScaleRenderer {
         this._lastVideoW       = srcW;
         this._lastVideoH       = srcH;
         this._hasValidTexture  = true;
+        this._frameIndex       = (this._frameIndex + 1) % 10000;
       } catch (e) {
         if (e && (e.name === 'SecurityError' || (e.message && e.message.includes('tainted')))) {
           return false;
@@ -630,8 +645,9 @@ class NovaScaleRenderer {
     if (loc.outTexel) gl.uniform2f(loc.outTexel, 1.0 / dW,   1.0 / dH);
     if (loc.sharp)    gl.uniform1f(loc.sharp,    this.sharpness);
     if (loc.split)    gl.uniform1f(loc.split,    this.splitPos);
-    if (loc.hdr)      gl.uniform1f(loc.hdr,      hdrCode);
-    if (loc.multi)    gl.uniform1f(loc.multi,    (use3Layer && usePass0) ? 1.0 : 0.0);
+    if (loc.hdr)        gl.uniform1f(loc.hdr,        hdrCode);
+    if (loc.multi)      gl.uniform1f(loc.multi,      (use3Layer && usePass0) ? 1.0 : 0.0);
+    if (loc.frameIndex) gl.uniform1f(loc.frameIndex, this._frameIndex);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.activeTexture(gl.TEXTURE0);
@@ -643,37 +659,54 @@ class NovaScaleRenderer {
       !this._drmVerifiedClean &&
       needsUpload &&
       curTime > 1.0 &&
-      !video.paused &&
-      Math.abs(curTime - this._lastProbeTime) >= 0.15
+      !video.paused
     ) {
-      this._lastProbeTime = curTime;
       try {
-        const pts = [
-          [0.5, 0.5], [0.25, 0.25], [0.75, 0.25],
-          [0.25, 0.75], [0.75, 0.75], [0.5, 0.85]
-        ];
-        let hasSignal = false;
-        for (let i = 0; i < pts.length; i++) {
-          const px = Math.max(0, Math.min(dW - 1, Math.round(dW * pts[i][0])));
-          const py = Math.max(0, Math.min(dH - 1, Math.round(dH * pts[i][1])));
-          gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this._probeBuf);
-          if (this._probeBuf[0] > 2 || this._probeBuf[1] > 2 || this._probeBuf[2] > 2) {
-            hasSignal = true;
-            break;
+        if (this._probeSync && this._probePbo) {
+          const waitStatus = gl.clientWaitSync(this._probeSync, 0, 0);
+          if (waitStatus === gl.ALREADY_SIGNALED || waitStatus === gl.CONDITION_SATISFIED) {
+            gl.deleteSync(this._probeSync);
+            this._probeSync = null;
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
+            gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this._probeBuf);
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+
+            if (this._probeBuf[0] > 2 || this._probeBuf[1] > 2 || this._probeBuf[2] > 2) {
+              this._drmVerifiedClean = true;
+              this._blackFrameCount  = 0;
+              this._blackProbeStart  = -1;
+            } else {
+              if (this._blackProbeStart < 0 || curTime < this._blackProbeStart) {
+                this._blackProbeStart = curTime;
+              }
+              if (++this._blackFrameCount >= 25 && (curTime - this._blackProbeStart) >= 4.0) {
+                return false;
+              }
+            }
           }
         }
 
-        if (hasSignal) {
-          this._drmVerifiedClean = true;
-          this._blackFrameCount  = 0;
-          this._blackProbeStart  = -1;
-        } else {
-          if (this._blackProbeStart < 0 || curTime < this._blackProbeStart) {
-            this._blackProbeStart = curTime;
+        if (!this._drmVerifiedClean && !this._probeSync && Math.abs(curTime - this._lastProbeTime) >= 0.15) {
+          this._lastProbeTime = curTime;
+          const pts = [
+            [0.5, 0.5], [0.25, 0.25], [0.75, 0.25],
+            [0.25, 0.75], [0.75, 0.75], [0.5, 0.85]
+          ];
+          const pt = pts[this._probePointIdx % pts.length];
+          this._probePointIdx++;
+          const px = Math.max(0, Math.min(dW - 1, Math.round(dW * pt[0])));
+          const py = Math.max(0, Math.min(dH - 1, Math.round(dH * pt[1])));
+
+          if (!this._probePbo) {
+            this._probePbo = gl.createBuffer();
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
+            gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ);
+          } else {
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._probePbo);
           }
-          if (++this._blackFrameCount >= 25 && (curTime - this._blackProbeStart) >= 4.0) {
-            return false;
-          }
+          gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+          this._probeSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
         }
       } catch (_probeErr) {
         return false;
@@ -704,6 +737,8 @@ class NovaScaleRenderer {
         if (this._histFboTex) gl.deleteTexture(this._histFboTex);
         if (this._histFbo)    gl.deleteFramebuffer(this._histFbo);
         if (this.quadBuffer)  gl.deleteBuffer(this.quadBuffer);
+        if (this._probePbo)   gl.deleteBuffer(this._probePbo);
+        if (this._probeSync)  gl.deleteSync(this._probeSync);
         new Set(Object.values(this.programs)).forEach(p => { if (p) gl.deleteProgram(p); });
         const ext = gl.getExtension('WEBGL_lose_context');
         if (ext) ext.loseContext();
@@ -728,6 +763,8 @@ class NovaScaleRenderer {
     this._histFboH   = 0;
     this._histValid  = false;
     this.quadBuffer = null;
+    this._probePbo  = null;
+    this._probeSync = null;
     this.programs   = {};
     this.canvas     = null;
   }
