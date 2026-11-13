@@ -58,7 +58,13 @@
         "hbomax.com",
         "primevideo.com",
         "aiv-cdn.net",
-        "tv.apple.com"
+        "tv.apple.com",
+        "kick.com",
+        "live-video.net",
+        "crunchyroll.com",
+        "vrv.co",
+        "bilibili.tv",
+        "bilibilicomics.com"
       ],
       "resourceTypes": [
         "media"

@@ -59,6 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const modeInfoText = document.getElementById('modeInfoText');
   const sharpnessRange = document.getElementById('sharpnessRange');
   const sharpnessVal = document.getElementById('sharpnessVal');
+  const deepIntensityCard = document.getElementById('deepIntensityCard');
+  const deepIntensityRange = document.getElementById('deepIntensityRange');
+  const deepIntensityVal = document.getElementById('deepIntensityVal');
 
   const modeDescriptions = {
     'anime-pure':    t('descAnimePure', 'Anime4K-Ultra Pure: FSR 1.0 + Soft Thin AA. Preserves 100% original grain, oil paintings, and hand-drawn textures.'),
@@ -78,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cinemaProfile: 'cinema-fsr', // 'cinema-fsr' | 'cinema-raisr' | 'cinema-fsrcnn'
     mode: 'anime-dbl',
     sharpness: 0.75,
+    deepIntensity: 0.75,
     hdr: false,
     multiLayer: false,
     deepMode: false,
@@ -88,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let hasPendingSave = false;
 
   // 1. Load persisted user preferences with legacy auto-migration
-  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'deepMode', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
+  chrome.storage.local.get(['enabled', 'mode', 'sharpness', 'deepIntensity', 'hdr', 'multiLayer', 'deepMode', 'splitScreen', 'engine', 'animeProfile', 'cinemaProfile'], (res) => {
     if (chrome.runtime.lastError) {
       console.warn('NovaScale: failed to read local storage:', chrome.runtime.lastError);
       return;
@@ -99,6 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (res.enabled !== undefined) state.enabled = Boolean(res.enabled);
     if (typeof res.sharpness === 'number' && !isNaN(res.sharpness)) {
       state.sharpness = Math.max(0.0, Math.min(1.0, res.sharpness));
+    }
+    if (typeof res.deepIntensity === 'number' && !isNaN(res.deepIntensity)) {
+      state.deepIntensity = Math.max(0.0, Math.min(1.0, res.deepIntensity));
     }
     if (res.hdr !== undefined) state.hdr = Boolean(res.hdr);
     if (res.multiLayer !== undefined) state.multiLayer = Boolean(res.multiLayer);
@@ -163,6 +170,10 @@ document.addEventListener('DOMContentLoaded', () => {
       state.sharpness = Math.max(0.0, Math.min(1.0, changes.sharpness.newValue));
       changed = true;
     }
+    if (changes.deepIntensity && changes.deepIntensity.newValue !== state.deepIntensity) {
+      state.deepIntensity = Math.max(0.0, Math.min(1.0, changes.deepIntensity.newValue));
+      changed = true;
+    }
     if (changes.hdr && changes.hdr.newValue !== state.hdr) {
       state.hdr = Boolean(changes.hdr.newValue);
       changed = true;
@@ -208,6 +219,15 @@ document.addEventListener('DOMContentLoaded', () => {
       toggleDeepMode.checked = state.deepMode;
       const card = toggleDeepMode.closest('.deepmode-card');
       if (card) card.classList.toggle('active', Boolean(state.deepMode));
+    }
+    if (deepIntensityCard) {
+      deepIntensityCard.classList.toggle('hidden', !state.deepMode);
+    }
+    if (deepIntensityRange && deepIntensityVal) {
+      const dPct = Math.round(state.deepIntensity * 100);
+      deepIntensityRange.value = dPct;
+      deepIntensityVal.textContent = `${dPct}%`;
+      deepIntensityRange.style.background = `linear-gradient(to right, #10b981 0%, #10b981 ${dPct}%, #1e293b ${dPct}%, #1e293b 100%)`;
     }
     if (deepModeSubtitle) {
       deepModeSubtitle.textContent = state.engine === 'anime'
@@ -298,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (chrome.scripting && chrome.scripting.executeScript) {
             chrome.scripting.executeScript({
               target: { tabId: tabId, allFrames: true },
-              files: ['core/native-bridge/native-client.js', 'scripts/shaders.js', 'scripts/webgl-engine.js', 'scripts/content.js']
+              files: ['core/native-bridge/native-client.js', 'core/webgpu/wgsl-shaders.js', 'core/webgpu/webgpu-engine.js', 'scripts/shaders.js', 'scripts/webgl-engine.js', 'scripts/content.js']
             }).then(() => {
               setTimeout(() => {
                 chrome.tabs.sendMessage(tabId, {
@@ -438,6 +458,21 @@ document.addEventListener('DOMContentLoaded', () => {
   sharpnessRange.addEventListener('change', () => {
     saveImmediate({ sharpness: state.sharpness });
   });
+
+  // Independent Deep AI Intensity slider interaction
+  if (deepIntensityRange) {
+    deepIntensityRange.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      state.deepIntensity = val / 100.0;
+      if (deepIntensityVal) deepIntensityVal.textContent = `${val}%`;
+      deepIntensityRange.style.background = `linear-gradient(to right, #10b981 0%, #10b981 ${val}%, #1e293b ${val}%, #1e293b 100%)`;
+      saveDebounced({ deepIntensity: state.deepIntensity });
+    });
+
+    deepIntensityRange.addEventListener('change', () => {
+      saveImmediate({ deepIntensity: state.deepIntensity });
+    });
+  }
 
   const flushPending = () => {
     if (hasPendingSave || debounceTimer) {

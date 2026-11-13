@@ -93,6 +93,7 @@ impl InferenceEngine {
     }
 
     /// Upscale an RGBA8 frame (width x height) by 2x using the active domain session.
+    /// Automatically resolves model input/output tensor names (e.g. "pixel_values", "image", "input").
     pub fn upscale_rgba8(
         &self,
         rgba: &[u8],
@@ -122,7 +123,14 @@ impl InferenceEngine {
             }
         }
 
-        let outputs = session.run(ort::inputs![input].ok()?).ok()?;
+        let input_name = session
+            .inputs
+            .first()
+            .map(|i| i.name.as_str())
+            .unwrap_or("input");
+
+        let input_val = ort::Value::from_array(input).ok()?;
+        let outputs = session.run(ort::inputs![input_name => input_val].ok()?).ok()?;
         let out_tensor = outputs[0].try_extract_tensor::<f32>().ok()?;
         let view = out_tensor.view();
         let shape = view.shape();

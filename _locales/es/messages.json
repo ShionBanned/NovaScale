@@ -202,5 +202,9 @@
   "deepModeSubtitleCinema": {
     "message": "Atención Profunda SPAN 2.0x (Texturas y Poros)",
     "description": "Subtitulo Cine para Modo Profundo IA"
+  },
+  "deepIntensityTitle": {
+    "message": "Potencia IA Profunda",
+    "description": "Título del deslizador independiente de Modo Profundo IA."
   }
 }

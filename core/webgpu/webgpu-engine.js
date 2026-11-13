@@ -22,6 +22,7 @@ class NovaScaleWebGPUEngine {
     this.sharpness       = 0.75;
     this.hdr             = false;
     this.multiLayer      = false;
+    this.deepMode        = false;
     this.splitPos        = -1.0;
     this.temporalDenoise = 0.0;
     this.mirrorX         = false;
@@ -192,6 +193,8 @@ class NovaScaleWebGPUEngine {
   setSharpness(v) { const n = parseFloat(v); if (!isNaN(n)) this.sharpness = Math.min(1, Math.max(0, n)); }
   setHdr(v) { this.hdr = Boolean(v); }
   setMultiLayer(v) { this.multiLayer = Boolean(v); }
+  setDeepMode(v) { this.deepMode = Boolean(v); }
+  setDeepIntensity(v) { const n = parseFloat(v); if (!isNaN(n)) this.deepIntensity = Math.min(1, Math.max(0, n)); }
   setSplit(v) { this.splitPos = typeof v === 'number' ? Math.min(1, Math.max(-1, v)) : (v ? 0.5 : -1); }
   setTemporalDenoise(v) {
     const n = parseFloat(v);
@@ -253,7 +256,7 @@ class NovaScaleWebGPUEngine {
       this.sharpness,
       isAnime,
       this.multiLayer ? 1.0 : 0.0,
-      0.0
+      this.deepMode ? 1.0 : 0.0
     ]));
 
     this.device.queue.writeBuffer(this._renderUniform, 0, new Float32Array([

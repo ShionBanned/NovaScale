@@ -89,7 +89,7 @@ window.NovaWebGPUShaders = {
       sharpness: f32,
       isAnime: f32,
       multiLayer: f32,
-      _pad0: f32,
+      deepMode: f32,
     };
 
     @group(0) @binding(0) var inLinearFP16: texture_2d<f32>;
@@ -202,7 +202,7 @@ window.NovaWebGPUShaders = {
       let mx4 = max(max(f, g), max(j, k));
       var recon = clamp(aC / max(aW, 0.0001), mn4, mx4);
 
-      let sharp = clamp(params.sharpness, 0.0, 1.0) * (1.0 + 0.28 * params.multiLayer);
+      let sharp = clamp(params.sharpness, 0.0, 1.0) * (1.0 + 0.22 * params.multiLayer + 0.25 * params.deepMode);
 
       // Anime Line-Art Consolidation (Normal-axis directional warp) vs Cinema RCAS
       if (params.isAnime > 0.5 && rawLen > 1e-5) {

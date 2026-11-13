@@ -224,6 +224,27 @@
         </div>
       </label>
 
+      <!-- Independent Deep AI Intensity Slider Card (visible when Deep AI Mode is enabled) -->
+      <section id="deepIntensityCard" class="card slider-card deep-slider-card hidden">
+        <div class="slider-header">
+          <div class="slider-title-wrap">
+            <svg class="deepmode-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke-linejoin="round"/>
+            </svg>
+            <span class="slider-title" data-i18n="deepIntensityTitle">Deep AI Intensity</span>
+          </div>
+          <span id="deepIntensityVal" class="slider-val-badge deep-val-badge">75%</span>
+        </div>
+        <div class="range-container">
+          <input type="range" id="deepIntensityRange" min="0" max="100" value="75" class="custom-range deep-range" data-i18n-aria="deepIntensityTitle" aria-label="Deep AI Intensity">
+        </div>
+        <div class="slider-scale-labels">
+          <span data-i18n="scaleSubtle">Subtle</span>
+          <span data-i18n="scaleBalanced">Balanced</span>
+          <span data-i18n="scaleUltra">Ultra</span>
+        </div>
+      </section>
+
       <!-- Split-Screen Laser Card -->
       <label class="card split-card" for="toggleSplit">
         <div class="split-info">

@@ -18,16 +18,17 @@
     try { window.__novascale_cleanup(); } catch (_) {}
   }
 
-  console.info('[NovaScale] Content Script v4.3 initialized at:', location.href);
+  console.info('[NovaScale] Content Script v3.8.0 initialized at:', location.href);
 
   let config = {
-    enabled:     true,
-    mode:        'anime-dbl',
-    sharpness:   0.75,
-    hdr:         false,
-    multiLayer:  false,
-    deepMode:    false,
-    splitScreen: false
+    enabled:       true,
+    mode:          'anime-dbl',
+    sharpness:     0.75,
+    deepIntensity: 0.75,
+    hdr:           false,
+    multiLayer:    false,
+    deepMode:      false,
+    splitScreen:   false
   };
 
   function normalizeMode(m) {
@@ -40,7 +41,8 @@
     return Boolean(config.enabled) && (
       Number(config.sharpness) > 0.001 ||
       Boolean(config.hdr) ||
-      Boolean(config.deepMode) ||
+      Boolean(config.multiLayer) ||
+      (Boolean(config.deepMode) && Number(config.deepIntensity) > 0.001) ||
       Boolean(config.splitScreen)
     );
   }
@@ -82,8 +84,10 @@
     const modeStr = String(config.mode || 'anime-dbl');
     const isAnime = !modeStr.startsWith('cinema');
     const sharp = Math.max(0, Math.min(1, Number(config.sharpness) || 0));
-    const deepMul  = config.deepMode ? 1.15 : 1.0;
-    const strength = sharp * (isAnime ? 0.50 : 0.38) * deepMul;
+    const deepInt = config.deepMode ? Math.max(0, Math.min(1, Number(config.deepIntensity) ?? 0.75)) : 0;
+    const effSharp = Math.max(sharp, deepInt * 0.85, config.multiLayer ? 0.30 : 0);
+    const boostMul = (1.0 + 0.35 * deepInt) * (config.multiLayer ? 1.18 : 1.0);
+    const strength = effSharp * (isAnime ? 0.52 : 0.40) * boostMul;
     const center = (1 + 4 * strength).toFixed(4);
     const neighbor = (-strength).toFixed(4);
 
@@ -91,7 +95,7 @@
     if (conv) {
       conv.setAttribute(
         'kernelMatrix',
-        sharp > 0.001
+        effSharp > 0.001
           ? `0 ${neighbor} 0 ${neighbor} ${center} ${neighbor} 0 ${neighbor} 0`
           : '0 0 0 0 1 0 0 0 0'
       );
@@ -124,29 +128,31 @@
   // ── State synchronization with chrome.storage.local ──────────────────────
   if (chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(
-      ['enabled', 'mode', 'sharpness', 'hdr', 'multiLayer', 'deepMode', 'splitScreen'],
+      ['enabled', 'mode', 'sharpness', 'deepIntensity', 'hdr', 'multiLayer', 'deepMode', 'splitScreen'],
       (res) => {
         if (chrome.runtime.lastError || !res) return;
-        if (res.enabled     !== undefined) config.enabled     = Boolean(res.enabled);
-        if (res.mode)                      config.mode        = normalizeMode(res.mode);
-        if (res.sharpness   !== undefined) config.sharpness   = Number(res.sharpness);
-        if (res.hdr         !== undefined) config.hdr         = Boolean(res.hdr);
-        if (res.multiLayer  !== undefined) config.multiLayer  = Boolean(res.multiLayer);
-        if (res.deepMode    !== undefined) config.deepMode    = Boolean(res.deepMode);
-        if (res.splitScreen !== undefined) config.splitScreen = Boolean(res.splitScreen);
+        if (res.enabled       !== undefined) config.enabled       = Boolean(res.enabled);
+        if (res.mode)                        config.mode          = normalizeMode(res.mode);
+        if (res.sharpness     !== undefined) config.sharpness     = Number(res.sharpness);
+        if (res.deepIntensity !== undefined) config.deepIntensity = Number(res.deepIntensity);
+        if (res.hdr           !== undefined) config.hdr           = Boolean(res.hdr);
+        if (res.multiLayer    !== undefined) config.multiLayer    = Boolean(res.multiLayer);
+        if (res.deepMode      !== undefined) config.deepMode      = Boolean(res.deepMode);
+        if (res.splitScreen   !== undefined) config.splitScreen   = Boolean(res.splitScreen);
         scheduleUpdateAll();
       }
     );
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
-      if ('enabled'     in changes) config.enabled     = Boolean(changes.enabled.newValue);
-      if ('mode'        in changes) config.mode        = normalizeMode(changes.mode.newValue);
-      if ('sharpness'   in changes) config.sharpness   = Number(changes.sharpness.newValue);
-      if ('hdr'         in changes) config.hdr         = Boolean(changes.hdr.newValue);
-      if ('multiLayer'  in changes) config.multiLayer  = Boolean(changes.multiLayer.newValue);
-      if ('deepMode'    in changes) config.deepMode    = Boolean(changes.deepMode.newValue);
-      if ('splitScreen' in changes) config.splitScreen = Boolean(changes.splitScreen.newValue);
+      if ('enabled'       in changes) config.enabled       = Boolean(changes.enabled.newValue);
+      if ('mode'          in changes) config.mode          = normalizeMode(changes.mode.newValue);
+      if ('sharpness'     in changes) config.sharpness     = Number(changes.sharpness.newValue);
+      if ('deepIntensity' in changes) config.deepIntensity = Number(changes.deepIntensity.newValue);
+      if ('hdr'           in changes) config.hdr           = Boolean(changes.hdr.newValue);
+      if ('multiLayer'    in changes) config.multiLayer    = Boolean(changes.multiLayer.newValue);
+      if ('deepMode'      in changes) config.deepMode      = Boolean(changes.deepMode.newValue);
+      if ('splitScreen'   in changes) config.splitScreen   = Boolean(changes.splitScreen.newValue);
       scheduleUpdateAll();
     });
   }
@@ -212,9 +218,10 @@
           ? this.canvas.getBoundingClientRect()
           : getVideoRect(this.video);
         if (rect.width < 20 || rect.height < 20) return;
+        const controlBarGuard = Math.min(48, rect.height * 0.15);
         if (
           e.clientX >= rect.left && e.clientX <= rect.right &&
-          e.clientY >= rect.top  && e.clientY <= rect.bottom
+          e.clientY >= rect.top  && e.clientY <= (rect.bottom - controlBarGuard)
         ) {
           this.splitPos = Math.max(0.02, Math.min(0.98, (e.clientX - rect.left) / rect.width));
           this.renderer.setSplit(this.splitPos);
@@ -253,7 +260,7 @@
       video.addEventListener('canplay',        this._onLoaded);
       video.addEventListener('resize',         this._onResize);
       window.addEventListener('resize',        this._onResize);
-      window.addEventListener('mousemove',     this._onMouseMove, { passive: true });
+      window.addEventListener('pointermove',   this._onMouseMove, { passive: true });
       document.addEventListener('fullscreenchange', this._onFullscreen);
 
       if (window.ResizeObserver) {
@@ -358,7 +365,7 @@
       this.syncSize();
     }
 
-    syncSize() {
+    syncSize(renderOnResize = true) {
       if (!this.canvas || !this.video || !this.video.isConnected) return;
 
       // If the player moved <video> across containers (e.g. custom fullscreen),
@@ -416,18 +423,23 @@
       this.canvas.style.width  = `${Math.round(renderW)}px`;
       this.canvas.style.height = `${Math.round(renderH)}px`;
 
-      // 1.5x Supersampling Target Grid (never downscale below 1.35x native video resolution,
-      // capped cleanly at 2560x1440 preserving exact aspect ratio).
-      const dpr      = Math.min(window.devicePixelRatio || 1, 2.0);
+      // True 1:1 FBO-to-Canvas Super-Resolution Grid (zero GL_LINEAR re-interpolation blur):
+      // Standard: 1.5x display / 1.35x video (up to 2560x1440)
+      // Multi-Layer: 1.65x display / 1.55x video (up to 3200x1800)
+      // Deep AI Mode: 2.0x display / 2.0x video (up to 4K UHD 3840x2160)
+      const dpr      = Math.min(window.devicePixelRatio || 1, 2.5);
       const aspect   = renderW / Math.max(1, renderH);
-      const ssFactor = config.deepMode ? 2.0 : 1.5;
-      const vidScale = config.deepMode ? 1.75 : 1.35;
-      const dispW    = Math.round(renderW * dpr * ssFactor);
-      const minUpW   = Math.round(vW * vidScale);
+      const physW    = Math.max(1, Math.round(renderW * dpr));
+      const ssFactor = config.deepMode ? 2.0 : (config.multiLayer ? 1.65 : 1.5);
+      const vidScale = config.deepMode ? 2.0 : (config.multiLayer ? 1.55 : 1.35);
+      const maxW     = config.deepMode ? 3840 : (config.multiLayer ? 3200 : 2560);
+      const maxH     = config.deepMode ? 2160 : (config.multiLayer ? 1800 : 1440);
+      const dispW    = Math.round(physW * ssFactor);
+      const minUpW   = Math.min(Math.round(vW * vidScale), Math.round(physW * 2.0));
       let targW      = Math.max(dispW, minUpW);
       let targH      = Math.round(targW / aspect);
-      if (targW > 2560) { targW = 2560; targH = Math.round(2560 / aspect); }
-      if (targH > 1440) { targH = 1440; targW = Math.round(1440 * aspect); }
+      if (targW > maxW) { targW = maxW; targH = Math.round(maxW / aspect); }
+      if (targH > maxH) { targH = maxH; targW = Math.round(maxH * aspect); }
       targW = Math.max(1, targW);
       targH = Math.max(1, targH);
 
@@ -437,7 +449,7 @@
       ) {
         this.canvas.width  = targW;
         this.canvas.height = targH;
-        if (isProcessingActive() && this.video.readyState >= 2) {
+        if (renderOnResize && isProcessingActive() && this.video.readyState >= 2) {
           this._renderStaticFrame(false);
         }
       }
@@ -509,14 +521,14 @@
         }
       }
 
-      const { mode, sharpness, hdr, multiLayer, deepMode, splitScreen } = config;
+      const { mode, sharpness, deepIntensity, hdr, multiLayer, deepMode, splitScreen } = config;
 
       if (deepMode && window.NovaScaleNativeBridge) {
         if (!this.nativeBridge) {
           this.nativeBridge = new window.NovaScaleNativeBridge();
         }
         this.nativeBridge.ensureConnected().then((ok) => {
-          if (ok && this.nativeBridge) this.nativeBridge.sendConfig(mode, sharpness);
+          if (ok && this.nativeBridge) this.nativeBridge.sendConfig(mode, sharpness, deepIntensity);
         });
       } else if (this.nativeBridge) {
         this.nativeBridge.disconnect();
@@ -525,16 +537,19 @@
       if (isProcessingActive()) {
         this.renderer.setMode(mode);
         this.renderer.setSharpness(sharpness);
+        if (typeof this.renderer.setDeepIntensity === 'function') {
+          this.renderer.setDeepIntensity(deepIntensity);
+        }
         this.renderer.setHdr(hdr);
         this.renderer.setMultiLayer(multiLayer);
         if (typeof this.renderer.setDeepMode === 'function') {
           this.renderer.setDeepMode(deepMode);
         }
         const isAnimeMode = !String(mode || 'anime-dbl').startsWith('cinema');
-        this.renderer.setTemporalDenoise((multiLayer || deepMode) ? (isAnimeMode ? 0.32 : 0.20) : 0.0);
+        this.renderer.setTemporalDenoise((multiLayer || deepMode) ? (isAnimeMode ? 0.16 : 0.12) : 0.0);
         this.renderer.setSplit(splitScreen ? (this.splitPos || 0.5) : -1.0);
 
-        this.syncSize();
+        this.syncSize(false);
 
         if (this.video.readyState >= 2) {
           const wasHidden = !this.canvas || this.canvas.style.display === 'none';
@@ -643,15 +658,18 @@
         if (!document.hidden && this.video.readyState >= 2 && this.canvas.width > 0) {
           let sourceForRender = this.video;
           let usingSidecar = false;
-          if (config.deepMode && this.nativeBridge && this.nativeBridge.connected) {
+          if (config.deepMode && this.nativeBridge && this.nativeBridge.connected && this.nativeBridge.backendActive) {
             const sidecarFrame = this.nativeBridge.submitVideoFrame(this.video);
             if (sidecarFrame) {
               sourceForRender = sidecarFrame;
               usingSidecar = true;
             }
           }
-          this.renderer.setSharpness(usingSidecar ? (config.sharpness * 0.25) : config.sharpness);
-          const ok = this.renderer.render(sourceForRender, forceUpload);
+          this.renderer.setSharpness(config.sharpness);
+          if (typeof this.renderer.setDeepIntensity === 'function') {
+            this.renderer.setDeepIntensity(usingSidecar ? (config.deepIntensity * 0.55) : config.deepIntensity);
+          }
+          const ok = this.renderer.render(sourceForRender, usingSidecar ? false : forceUpload);
           if (!ok) {
             this._attemptCorsRecovery();
             return;
@@ -723,7 +741,20 @@
         return;
       }
       if (this.video.readyState < 2 || this.canvas.width === 0) return;
-      const ok = this.renderer.render(this.video, forceUpload);
+      let sourceForRender = this.video;
+      let usingSidecar = false;
+      if (config.deepMode && this.nativeBridge && this.nativeBridge.connected && this.nativeBridge.backendActive) {
+        const sidecarFrame = this.nativeBridge.submitVideoFrame(this.video);
+        if (sidecarFrame) {
+          sourceForRender = sidecarFrame;
+          usingSidecar = true;
+        }
+      }
+      this.renderer.setSharpness(config.sharpness);
+      if (typeof this.renderer.setDeepIntensity === 'function') {
+        this.renderer.setDeepIntensity(usingSidecar ? (config.deepIntensity * 0.55) : config.deepIntensity);
+      }
+      const ok = this.renderer.render(sourceForRender, usingSidecar ? false : forceUpload);
       if (!ok) {
         this._attemptCorsRecovery();
       } else {
@@ -740,7 +771,7 @@
       if (this.rObs)        { this.rObs.disconnect();              this.rObs        = null; }
 
       window.removeEventListener('resize',             this._onResize);
-      window.removeEventListener('mousemove',          this._onMouseMove);
+      window.removeEventListener('pointermove',        this._onMouseMove);
       document.removeEventListener('fullscreenchange', this._onFullscreen);
 
       if (this.video) {
@@ -811,14 +842,17 @@
       attachVideo(videos[i]);
     }
 
-    // Deep Shadow DOM traversal (opened proactively via injector.js)
-    const allElements = root.querySelectorAll('*');
-    for (let i = 0; i < allElements.length; i++) {
-      const sr = allElements[i].shadowRoot;
-      if (sr) {
-        scanAllVideos(sr);
+    try {
+      const walkerRoot = root.documentElement || root;
+      const walker = document.createTreeWalker(walkerRoot, NodeFilter.SHOW_ELEMENT);
+      let node = walker.nextNode();
+      while (node) {
+        if (node.shadowRoot) {
+          scanAllVideos(node.shadowRoot);
+        }
+        node = walker.nextNode();
       }
-    }
+    } catch (_) {}
   }
 
   // Instant capture-phase interception for dynamically injected <video> nodes
@@ -840,9 +874,35 @@
   // Initial scan and MutationObserver with automatic cleanup for detached videos
   scanAllVideos();
 
+  function mutationTouchesVideoOrShadow(mutations) {
+    for (let i = 0; i < mutations.length; i++) {
+      const m = mutations[i];
+      const added = m.addedNodes;
+      for (let j = 0; j < added.length; j++) {
+        const n = added[j];
+        if (n && n.nodeType === 1) {
+          if (n.tagName === 'VIDEO' || n.shadowRoot || (n.querySelector && n.querySelector('video'))) {
+            return true;
+          }
+        }
+      }
+      const removed = m.removedNodes;
+      for (let j = 0; j < removed.length; j++) {
+        const n = removed[j];
+        if (n && n.nodeType === 1) {
+          if (n.tagName === 'VIDEO' || (n.querySelector && n.querySelector('video'))) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   let _domTimer = null;
-  const domObserver = new MutationObserver(() => {
+  const domObserver = new MutationObserver((mutations) => {
     if (_domTimer) return;
+    if (!mutationTouchesVideoOrShadow(mutations)) return;
     _domTimer = setTimeout(() => {
       _domTimer = null;
       scanAllVideos();

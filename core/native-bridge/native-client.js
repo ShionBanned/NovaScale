@@ -1,29 +1,33 @@
 /**
- * NovaScale - Sprint 3 Native Sidecar Bridge (TensorRT / DirectML Out-of-Process Client)
+ * NovaScale - Sprint 3 Native Sidecar Bridge v3.8.0 (TensorRT / DirectML Out-of-Process Client)
  *
  * Connects to ws://127.0.0.1:19480/novascale-stream when Deep AI Mode is enabled.
- * Uses strict single-frame inFlight backpressure and automatic fallback to WebGL2 if offline.
+ * Uses strict single-frame inFlight backpressure, frame-accurate timestamps,
+ * and automatic fallback to WebGL2 Deep Shader Engine if offline or in passthrough mode.
  */
 
 class NovaScaleNativeBridge {
   constructor() {
-    this.connected   = false;
-    this.connecting  = false;
-    this.socket      = null;
-    this.endpoint    = 'ws://127.0.0.1:19480/novascale-stream';
-    this.inFlight    = false;
-    this.lastProbeAt = 0;
+    this.connected     = false;
+    this.backendActive = false;
+    this.connecting    = false;
+    this.socket        = null;
+    this.endpoint      = 'ws://127.0.0.1:19480/novascale-stream';
+    this.inFlight      = false;
+    this.lastProbeAt   = 0;
 
-    this._srcCanvas  = null;
-    this._srcCtx     = null;
-    this._outCanvas  = null;
-    this._outCtx     = null;
-    this._hasOutFrame = false;
+    this._srcCanvas    = null;
+    this._srcCtx       = null;
+    this._outCanvas    = null;
+    this._outCtx       = null;
+    this._hasOutFrame  = false;
+    this._lastSentTime = -1;
+    this._outFrameTime = -1;
   }
 
   async ensureConnected() {
     if (this.connected && this.socket && this.socket.readyState === WebSocket.OPEN) {
-      return true;
+      return this.backendActive;
     }
     if (this.connecting) return false;
 
@@ -52,25 +56,35 @@ class NovaScaleNativeBridge {
           clearTimeout(timer);
           this.socket = ws;
           this.connected = true;
+          this.backendActive = true;
           this.inFlight = false;
-          try { ws.send(JSON.stringify({ type: 'hello', version: '3.4.0' })); } catch (_) {}
+          try { ws.send(JSON.stringify({ type: 'hello', version: '3.8.0' })); } catch (_) {}
           console.info('[NovaScale] Deep AI Mode connected to RTX Sidecar.');
           done(true);
         };
         ws.onmessage = (evt) => {
           if (evt.data instanceof ArrayBuffer) {
             this._handleBinaryFrame(evt.data);
+          } else if (typeof evt.data === 'string') {
+            try {
+              const msg = JSON.parse(evt.data);
+              if (msg && msg.type === 'ready' && typeof msg.backend === 'string') {
+                this.backendActive = !msg.backend.toLowerCase().includes('passthrough');
+              }
+            } catch (_) {}
           }
         };
         ws.onerror = () => {
           clearTimeout(timer);
           this.connected = false;
+          this.backendActive = false;
           this.inFlight = false;
           done(false);
         };
         ws.onclose = () => {
           clearTimeout(timer);
           this.connected = false;
+          this.backendActive = false;
           this.inFlight = false;
           this.socket = null;
           done(false);
@@ -82,13 +96,14 @@ class NovaScaleNativeBridge {
     });
   }
 
-  sendConfig(mode, sharpness) {
+  sendConfig(mode, sharpness, deepIntensity = 0.75) {
     if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     try {
       this.socket.send(JSON.stringify({
         type: 'config',
         mode: String(mode || 'anime-dbl'),
-        sharpness: Number(sharpness) || 0.75
+        sharpness: Number(sharpness) ?? 0.75,
+        deepIntensity: Number(deepIntensity) ?? 0.75
       }));
     } catch (_) {}
   }
@@ -113,11 +128,18 @@ class NovaScaleNativeBridge {
     const rgba = new Uint8ClampedArray(buf, 8, outW * outH * 4);
     const imgData = new ImageData(rgba, outW, outH);
     this._outCtx.putImageData(imgData, 0, 0);
+    this._outFrameTime = this._lastSentTime >= 0 ? this._lastSentTime : (this._outFrameTime + 0.016);
+    this._outCanvas.videoWidth  = outW;
+    this._outCanvas.videoHeight = outH;
+    this._outCanvas.readyState  = 4;
+    this._outCanvas.currentTime = this._outFrameTime;
     this._hasOutFrame = true;
   }
 
   submitVideoFrame(video) {
-    if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) return null;
+    if (!this.connected || !this.backendActive || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return null;
+    }
     const srcW = video.videoWidth;
     const srcH = video.videoHeight;
     if (!srcW || !srcH) return null;
@@ -125,7 +147,11 @@ class NovaScaleNativeBridge {
     if (this.inFlight && this._inFlightSentAt && (performance.now() - this._inFlightSentAt) > 600) {
       this.inFlight = false;
     }
-    if (!this.inFlight) {
+
+    const curTime = video.currentTime;
+    const isNewVideoTime = Math.abs(curTime - this._lastSentTime) > 0.0001;
+
+    if (!this.inFlight && isNewVideoTime) {
       if (!this._srcCanvas) {
         this._srcCanvas = document.createElement('canvas');
         this._srcCtx = this._srcCanvas.getContext('2d', { willReadFrequently: true });
@@ -143,6 +169,7 @@ class NovaScaleNativeBridge {
         dv.setUint32(4, srcH, true);
         packet.set(img.data, 8);
         this.inFlight = true;
+        this._lastSentTime = curTime;
         this._inFlightSentAt = performance.now();
         this.socket.send(packet.buffer);
       } catch (_) {
@@ -151,10 +178,6 @@ class NovaScaleNativeBridge {
     }
 
     if (this._hasOutFrame && this._outCanvas) {
-      this._outCanvas.videoWidth  = this._outCanvas.width;
-      this._outCanvas.videoHeight = this._outCanvas.height;
-      this._outCanvas.readyState  = 4;
-      this._outCanvas.currentTime = video.currentTime;
       return this._outCanvas;
     }
     return null;
@@ -163,11 +186,14 @@ class NovaScaleNativeBridge {
   disconnect() {
     this.inFlight = false;
     this._hasOutFrame = false;
+    this._lastSentTime = -1;
+    this._outFrameTime = -1;
     if (this.socket) {
       try { this.socket.close(); } catch (_) {}
       this.socket = null;
     }
     this.connected = false;
+    this.backendActive = false;
     this.connecting = false;
   }
 }

@@ -202,5 +202,9 @@
   "deepModeSubtitleCinema": {
     "message": "SPAN Deep Attention & Texture Recovery (2.0x)",
     "description": "Cinema subtitle for Deep AI Mode"
+  },
+  "deepIntensityTitle": {
+    "message": "Deep AI Intensity",
+    "description": "Label above independent Deep AI Mode intensity slider."
   }
 }

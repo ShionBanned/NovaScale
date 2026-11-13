@@ -786,3 +786,29 @@ html, body {
   background: linear-gradient(150deg, rgba(16, 185, 129, 0.16) 0%, rgba(13, 19, 34, 0.95) 100%);
   box-shadow: 0 0 14px rgba(16, 185, 129, 0.22);
 }
+
+.deep-slider-card {
+  border-color: rgba(16, 185, 129, 0.38);
+  background: linear-gradient(150deg, rgba(16, 185, 129, 0.10) 0%, rgba(13, 19, 34, 0.92) 100%);
+  padding: 6px 11px;
+  gap: 4px;
+}
+
+.deep-slider-card.hidden {
+  display: none;
+}
+
+.deep-val-badge {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.32);
+}
+
+.deep-range::-webkit-slider-thumb {
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.65);
+}
+
+.deep-range::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.9);
+}
